@@ -1,17 +1,14 @@
+import math
 import logging
 import argparse
-import numpy as np
 
 
 import optax
 
-from cosine_lr_scheduler import CosineScheduler
+from cosine_lr_scheduler import CosineScheduler, Linear_Warmup_Cosine_Decay
+from somewhere import distributed
 
 logger = logging.getLogger("dinov3")
-
-
-
-
 
 
 
@@ -27,6 +24,7 @@ def get_parsed_args():
     parser.add_argument("--opts", default=None, nargs=argparse.REMAINDER)
     
     parser.add_argument("--output-dir", type=str, default="./local_dino")
+    parser.add_argument("--benchmark-codebase", action="store_true")
     parser.add_argument("seed", default=12, type=int, help="rng seed")
     parser.add_argument("--test-ibot", action="store_true", help="test ibot")
     parser.add_argument("--profiling", action="store_true", help="profile")
@@ -34,7 +32,7 @@ def get_parsed_args():
     parser.add_argument("--record-ref-losses", action="store_true", help="reference losses")
     parser.add_argument("--ref-losses-path", default="", type=str)
     parser.add_argument("--multi-distillation", action="store_true")
-    
+
     return parser.parse_args()
 
 
@@ -98,3 +96,92 @@ def build_schedulers(config):
         teacher_temp_schedule,
         last_layer_lr_schedule
     )
+
+
+
+
+
+    
+def build_schedulers_v2(config):
+    iter_per_epoch = config.train.OFFICIAL_EPOCH_LENGTH
+    total_iters = config.train.OFFICIAL_EPOCH_LENGTH * config.optim.epochs
+    
+    lr_peak = config.schedules.lr.peak
+    lr_end = config.schedules.lr.end    
+    def scale_lr(lr_peak, lr_end, scale):
+        logger.info(
+            f"scaling rule :{config.optim.scaling_rule}, "
+            f"\n\tlr peak: {config.schedules.lr.peak} -> {lr_peak}"
+            f"\n\tlr end: {config.schedules.lr.end} -> {lr_end}"
+        )
+        return lr_peak * scale, lr_end * scale
+
+
+    if config.optim.scaling_rule == "linear_wrt_256":
+        lr_scale = config.train.batch_size_per_device * distributed.get_world_size() / 256.0
+        lr_peak, lr_end = scale_lr(lr_peak, lr_end, lr_scale)
+    elif config.optim.scaling_rul == "srt_wrt_1024":
+        lr_scale = 4 * math.sqrt(config.train.batch_size_per_device * distributed.get_world_size() / 1024.0)
+        lr_peak, lr_end = scale_lr(lr_peak, lr_end, lr_scale)
+    else:
+        logger.info(f"no scaling rule for {config.optim.scaling_rule = }")
+    
+
+
+    learning_rate = dict(
+        start=config.schedules.lr.start,
+        peak=lr_peak,
+        end=lr_end,
+        warmup_iterations=iter_per_epoch * config.schedules.lr.warmup_epochs,
+        total_iterations=total_iters,
+        cosine_iterations=(
+            iter_per_epoch * config.schedules.lr.cosine_epochs if "cosine_epochs" in config.schedules.lr else None
+        ),
+    )
+
+    weight_decay = dict(
+        start=config.schedules.weight_decay.start,
+        peak=config.schedules.weight_decay.peak,
+        end=config.schedules.weight_decay.end,
+        warmup_iterations=iter_per_epoch * config.schedules.weight_decay.warmup_epochs,
+        total_iterations=total_iters,
+        cosine_iterations=(
+            iter_per_epoch * config.schedules.weight_decay.cosine_epochs
+            if "cosine_epochs" in config.schedules.weight_decay
+            else None
+        ),
+    )
+
+    momentum = dict(
+        start=config.schedules.momentum.start,
+        peak=config.schedules.momentum.peak,
+        end=config.schedules.momentum.end,
+        warmup_iterations=iter_per_epoch * config.schedules.momentum.warmup_epochs,
+        total_iterations=total_iters,
+        cosine_iterations=(
+            iter_per_epoch * config.schedules.momentum.cosine_epochs if "cosine_epochs" in config.schedules.momentum else None
+        ),
+    )
+    
+    teacher_temp = dict(
+        start=config.schedules.teacher_temp.start,
+        peak=config.schedules.teacher_temp.peak,
+        end=config.schedules.teacher_temp.end,
+        warmup_iterations=iter_per_epoch * config.schedules.teacher_temp.warmup_epochs,
+        total_iterations=total_iters,
+        cosine_iterations=(
+            iter_per_epoch * config.schedules.teacher_temp.cosine_epochs
+            if "cosine_epochs" in config.schedules.teacher_temp
+            else None
+        ),
+    )
+
+    lr_schedule = Linear_Warmup_Cosine_Decay(**learning_rate)
+    wd_schedule = Linear_Warmup_Cosine_Decay(**weight_decay)
+    momentum_schedule = Linear_Warmup_Cosine_Decay(**momentum)
+    teacher_temp_schedule = Linear_Warmup_Cosine_Decay(**teacher_temp)
+
+    last_layer_lr_schedule = Linear_Warmup_Cosine_Decay(**learning_rate)
+    last_layer_lr_schedule.schedule[: iter_per_epoch * config.schedules.lr.freeze_last_layer_epochs] = 0
+    
+    return lr_schedule, wd_schedule, momentum_schedule, teacher_temp_schedule, last_layer_lr_schedule

@@ -40,21 +40,26 @@ class CosineScheduler:
         return self.schedule[itr]
 
 
-def linear_warmup_cosine_decay(
-    start,
-    peak,
-    end,
-    warmup_iterations,
-    total_iterations,
-    cosine_iterations=None
-):
-    linear = np.linspace(start, peak, warmup_iterations, endpoit=False)
-    if cosine_iterations is None:
-        cosine_iterations = total_iterations - warmup_iterations
-    cosine = np.cos(np.linspace(0, np.pi, cosine_iterations))
-    cosine = (cosine + 1) / 2
-    cosine = (peak - end) * cosine + end
-    remaining_iterations = total_iterations - cosine_iterations - warmup_iterations
-    assert remaining_iterations >= 0
-    constant = np.full((remaining_iterations,), fill_value=end)
-    return np.concatenate([linear, cosine, constant])
+class Linear_Warmup_Cosine_Decay:
+    def __init__(
+        self,
+        start,
+        peak,
+        end,
+        warmup_iterations,
+        total_iterations,
+        cosine_iterations=None
+    ):
+        linear = np.linspace(start, peak, warmup_iterations, endpoit=False)
+        if cosine_iterations is None:
+            cosine_iterations = total_iterations - warmup_iterations
+        cosine = np.cos(np.linspace(0, np.pi, cosine_iterations))
+        cosine = (cosine + 1) / 2
+        cosine = (peak - end) * cosine + end
+        remaining_iterations = total_iterations - cosine_iterations - warmup_iterations
+        assert remaining_iterations >= 0
+        constant = np.full((remaining_iterations,), fill_value=end)
+        self.schedule = np.concatenate([linear, cosine, constant])
+
+    def __call__(self, idx):
+        return self.schedule[idx]
