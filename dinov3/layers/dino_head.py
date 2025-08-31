@@ -47,7 +47,7 @@ class DINOHead(nn.Module):
 
     def setup(self):
         self.mlp = _build_mlp(
-            self;nlayers,
+            self.nlayers,
             self.in_dim,
             self.bottleneck_dim,
             hidden_dim=self.hidden_dim,
@@ -56,7 +56,7 @@ class DINOHead(nn.Module):
         )
         self.last_layer = nn.Dense(
             self.out_dim, 
-            use_bias=False
+            use_bias=False,
             kernel_init=jax.nn.initializers.truncated_normal(
                 stddev=.02, 
                 lower=-1., 

@@ -19,7 +19,3 @@ class RMSNorm(nn.Module):
         
         x = x * norm.astype(x.dtype)
         return self.weight * x
-
-
-    # def reset_parameters(self):
-    #     self.weight = jnp.ones_like(self.weight)
