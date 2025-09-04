@@ -16,24 +16,24 @@ class LinearKMaskedBias(nn.Module):
     features: int
     use_bias: bool = False
     kernel_init: Callable = nn.initializers.lecun_normal()
-    bias_init: Callable = None
+    bias_init: Callable = nn.initializers.zeros
 
     @nn.compact
     def __call__(self, x):
-        assert self.features % 3 == 0
-        
+        assert self.features % 3 == 0        
         kernel = self.param(
             "kernel",
             self.kernel_init,
             (x.shape[-1], self.features)
         )
         
-        if self.use_bias:
-            bias = self.variable("constants", "bias", lambda: jnp.full((self.features,), jnp.nan))
-
         out = x @ kernel
+
         if self.use_bias:
-            out += bias
+            bias = self.param("bias", self.bias_init, (self.features,))
+            bias_mask = self.variable("constants", "bias_mask", lambda: jnp.full((self.features,), jnp.nan))
+            out += bias * bias_mask.value
+
         return  out
 
 
