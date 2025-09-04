@@ -61,11 +61,10 @@ class SelfAttention(nn.Module):
     def apply_rope(self, q, k, rope):
         sin, cos = rope
         rdt = sin.dtype
-        qdt = q.dtype
-        kdt = k.dtype
+        qdt, kdt = q.dtype, k.dtype
 
-        q = q.astype(rdt)
-        k = k.astype(rdt)
+        q, k = q.astype(rdt), k.astype(rdt)
+        q, k = [jnp.transpose(t, (0, 2, 1, 3)) for t in [q, k]]        
         
         prefix = q.shape[-2] - sin.shape[-2]
         assert prefix >= 0
@@ -78,7 +77,8 @@ class SelfAttention(nn.Module):
 
         q = jnp.concatenate([q_prefix, q], axis=-2).astype(qdt)
         k = jnp.concatenate([k_prefix, k], axis=-2).astype(kdt)
-        
+
+        q, k = [jnp.transpose(t, (0, 2, 1, 3)) for t in [q, k]]
         return q, k        
 
 
