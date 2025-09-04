@@ -1,13 +1,5 @@
-import math
-from typing import List, Tuple
+from typing import Callable
 
-import torch
-import torch.nn.functional as F
-from dinov3.utils import cat_keep_shapes, uncat_with_shapes
-from torch import Tensor, nn
-
-
-import jax
 import jax.numpy as jnp
 import flax.linen as nn
 
@@ -20,13 +12,11 @@ def rope_apply(x, sin, cos):
     return x * cos + rope_rotate_half(x) * sin
 
 
-
-
 class LinearKMaskedBias(nn.Module):
     features: int
     use_bias: bool = False
     kernel_init: Callable = nn.initializers.lecun_normal()
-    bias_init: Callable = nn.initializers.zeros
+    bias_init: Callable = None
 
     @nn.compact
     def __call__(self, x):
@@ -35,13 +25,13 @@ class LinearKMaskedBias(nn.Module):
         kernel = self.param(
             "kernel",
             self.kernel_init,
-            (self.features, x.shape[-1])
+            (x.shape[-1], self.features)
         )
         
         if self.use_bias:
             bias = self.variable("constants", "bias", lambda: jnp.full((self.features,), jnp.nan))
 
-        out = x @ kernel.T
+        out = x @ kernel
         if self.use_bias:
             out += bias.value
         return  out
@@ -110,7 +100,7 @@ class SelfAttention(nn.Module):
 
     def compute_attention(self, qkv, attn_bias, rope=None, deterministic=True):
         assert attn_bias is None
-        b, n, d = qkv.shape
+        b, n, _ = qkv.shape
         
         qkv = qkv.reshape(b, n, 3, self.num_heads, self.head_dim)
         q, k, v = jnp.split(qkv, 3, axis=2) # b, n, 1, h, hd
@@ -155,6 +145,7 @@ class CausalSelfAttention(nn.Module):
         self.qkv = nn.Dense(self.dim*3, use_bias=self.qkv_bias)
         self.proj = nn.Dense(self.dim, use_bias=self.proj_bias)
         self.proj_drop = nn.Dropout(self.proj_drop)
+
 
 
 class CausalSelfAttention(nn.Module):
