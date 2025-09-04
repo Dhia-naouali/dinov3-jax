@@ -8,6 +8,12 @@
 
 This repository contains a Flax/JAX implementation of DINOv3 ([paper](https://arxiv.org/abs/2508.10104), [original repo](https://github.com/facebookresearch/dinov3)), originally developed in PyTorch by [Meta AI](https://github.com/facebookresearch)
 
+<br>
+<br>
+<br>
+<br>
+<br>
+
 
 ```text
 @misc{siméoni2025dinov3,
