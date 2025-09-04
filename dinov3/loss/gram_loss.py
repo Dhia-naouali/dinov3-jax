@@ -37,6 +37,7 @@ class GramLoss(nn.Module):
             student_sim = jnp.where(student_sim < 0., 0., student_sim)
         
         elif self.remove_only_teacher_neg:
-            target_sim = jnp.where(target_sim < 0., 0., target_sim)
-        
+            student_sim[(student_sim < 0) & (target_sim < 0)] = 0.0
+            target_sim[target_sim < 0] = 0.0        
+
         return jnp.mean((student_sim - target_sim) ** 2)
