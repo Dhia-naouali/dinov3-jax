@@ -2,7 +2,6 @@ import jax.numpy as jnp
 import flax.linen as nn
 
 
-
 class GramLoss(nn.Module):
     apply_norm: bool = True
     img_level: bool = True
@@ -41,22 +40,3 @@ class GramLoss(nn.Module):
             target_sim = jnp.where(target_sim < 0., 0., target_sim)
         
         return jnp.mean((student_sim - target_sim) ** 2)
-
-
-class GramLoss(nn.Module):
-    # self.mse_loss = torch.nn.MSELoss()
-    
-    def forward(self, output_feats, target_feats, img_level=True):
-        # Compute similarities
-        student_sim = torch.matmul(output_feats, output_feats.transpose(-1, -2))
-
-        if self.remove_neg:
-            target_sim[target_sim < 0] = 0.0
-            student_sim[student_sim < 0] = 0.0
-
-        elif self.remove_only_teacher_neg:
-            # Remove only the negative sim values of the teacher
-            target_sim[target_sim < 0] = 0.0
-            student_sim[(student_sim < 0) & (target_sim < 0)] = 0.0
-
-        return self.mse_loss(student_sim, target_sim)
