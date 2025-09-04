@@ -1,3 +1,7 @@
+# DINOv3 in Flax/JAX
+# Ported from the original PyTorch implementation by Meta AI
+# Original repository: https://github.com/facebookresearch/dinov3
+
 import flax.linen as nn
 from typing import Union, Tuple, Callable
 
@@ -13,7 +17,7 @@ def make_2tuple(x):
 class PatchEmbed(nn.Module):
     img_size: Union[int, Tuple[int, int]] = 224
     patch_size: Union[int, Tuple[int, int]] = 16
-    in_channels: int = 3
+    # in_chans: int = 3
     embed_dim: int = 768
     norm_layer: Callable | None = None
     flatten_embedding: bool = True
