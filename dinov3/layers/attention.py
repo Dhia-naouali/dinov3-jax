@@ -33,7 +33,7 @@ class LinearKMaskedBias(nn.Module):
 
         out = x @ kernel
         if self.use_bias:
-            out += bias.value
+            out += bias
         return  out
 
 
@@ -67,21 +67,18 @@ class SelfAttention(nn.Module):
         q = q.astype(rdt)
         k = k.astype(rdt)
         
-        n = q.shape[-2]
-        prefix = n - sin.shape[-2]
+        prefix = q.shape[-2] - sin.shape[-2]
         assert prefix >= 0
 
         q_prefix = q[:, :, :prefix, :]
         k_prefix = k[:, :, :prefix, :]
 
-        q = rope_apply(q_prefix[:, :, prefix:, :], sin, cos)
-        q = jnp.concatenate([q_prefix, q], dim=-2)
+        q = rope_apply(q[:, :, prefix:, :], sin, cos)
+        k = rope_apply(k[:, :, prefix:, :], sin, cos)
 
-        k = rope_apply(k_prefix[:, :, prefix:, :], sin, cos)
-        k = jnp.concatenate([k_prefix, k], dim=-2)
+        q = jnp.concatenate([q_prefix, q], axis=-2).astype(qdt)
+        k = jnp.concatenate([k_prefix, k], axis=-2).astype(kdt)
         
-        q = q.astype(qdt)
-        k = k.astype(kdt)
         return q, k        
 
 
@@ -103,10 +100,7 @@ class SelfAttention(nn.Module):
         b, n, _ = qkv.shape
         
         qkv = qkv.reshape(b, n, 3, self.num_heads, self.head_dim)
-        q, k, v = jnp.split(qkv, 3, axis=2) # b, n, 1, h, hd
-        q = jnp.squeeze(q, axis=2) # b, n, h, hd
-        k = jnp.squeeze(k, axis=2) # b, n, h, hd
-        v = jnp.squeeze(v, axis=2) # b, n, h, hd
+        q, k, v = jnp.moveaxis(qkv, 2, 0) # b, n, h, hd
         
         if rope is not None:
             q, k = self.apply_rope(q, k, rope)
