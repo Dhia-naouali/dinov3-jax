@@ -2,12 +2,15 @@
 # Ported from the original PyTorch implementation by Meta AI
 # Original repository: https://github.com/facebookresearch/dinov3
 
+import os
+import sys
 import math
 import logging
 import argparse
 
-
+import jax
 import optax
+import jax.numpy as jnp
 
 from cosine_lr_scheduler import CosineScheduler, Linear_Warmup_Cosine_Decay
 from somewhere import distributed
@@ -16,7 +19,7 @@ logger = logging.getLogger("dinov3")
 
 
 
-def get_parsed_args():
+def get_args_parser():
     parser = argparse.ArgumentParser()
     parser.add_argument("--config-file", default="")
     parser.add_argument("--no-resume", action="store_true")
@@ -37,7 +40,7 @@ def get_parsed_args():
     parser.add_argument("--ref-losses-path", default="", type=str)
     parser.add_argument("--multi-distillation", action="store_true")
 
-    return parser.parse_args()
+    return parser
 
 
 def build_optimizer(config, schedule):
@@ -189,3 +192,57 @@ def build_schedulers_v2(config):
     last_layer_lr_schedule.schedule[: iter_per_epoch * config.schedules.lr.freeze_last_layer_epochs] = 0
     
     return lr_schedule, wd_schedule, momentum_schedule, teacher_temp_schedule, last_layer_lr_schedule
+
+
+
+
+def main(argv=None):
+    if argv is None:
+        args = get_args_parser().parse_args()
+    else:
+        args = get_args_parser().parse_args(argv[1:])
+        args.output_dir = sys.argv[1]
+    if args.multi_distillation:
+        print("performing multidistillation run")
+        config = setup_multidistillation(args)
+        logger.info("setup_multidistillation done")
+        assert config.MODEL.META_ARCHITECTURE == "MultiDistillationMetaArch"
+    else:
+        setup_job(output_dir=args.output_dir, seed=args.seed)
+        config = setup_config(args, strict_cfg=False)
+        logger.info(config)
+        setup_logging(
+            output=os.path.join(os.path.abspath(args.output_dir), "nan_logs"),
+            name="nan_logger"
+        )
+    meta_arch = {
+        "SSLMetaArch": SSLMetaArch,
+        "MultiDistillationMetaArch": MultiDistillationMetaArch
+    }.get(config.MODEL.META_ARCHITECTURE, None)
+    if meta_arch is None:
+        raise ValueError(f"Unkown MODEL.META_ARCHITECTURE {config.MODEL.META_ARCHITECTURE}")
+
+
+    main_key = jax.random.PRNGKey(config.seed)
+    main_key, init_key = jax.random.split(main_key)
+    input_shape = ...
+    
+    model = meta_arch(config)
+    # fill with nans to check for init
+    params = model.init(init_key, jnp.zeros(input_shape))
+    
+    # prepare for FSDP (replicate across devices ?)
+    logger.info(f"...") # jax.debug.visualize_array_sharding ???
+    if args.eval_only:
+        iteration = model.get_checkpointer_class()(
+            model, save_dir=config.train.output_dir
+        ).resume_or_load(
+            config.MODEL.WEIGHTS, resume = not args.no_resume
+        ).get("teration", 1) + 1
+        
+        return do_test(config, model, f"manual_{iteration}")
+    do_train(config, model, resume=not args.no_resume)
+
+
+if __name__ == "__main__":
+    main()
