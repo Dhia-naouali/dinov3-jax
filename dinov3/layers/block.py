@@ -7,7 +7,7 @@ import jax
 import jax.numpy as jnp
 import flax.linen as nn
 
-from typing import Callable
+from typing import Callable, Optional
 
 from dinov3.utils import cat_keep_shapes, uncat_with_shapes
 from .attention import SelfAttention, CausalSelfAttention
@@ -210,3 +210,52 @@ class SelfAttentionBlock(nn.Module):
             
             return self._forward_list(x_or_x_list, rope_list=rope_or_rope_list, deterministic=deterministic)
         raise AssertionError
+
+
+
+
+class CausalSelfAttentionBlock(nn.Module):
+    dim: int
+    num_heads: int
+    ffn_ratio: float = 4.0
+    ls_init_value: Optional[float] = None
+    is_causal: bool = True
+    act_layer: Callable = nn.gelu
+    norm_layer: Callable = nn.LayerNorm
+    dropout_prob: float = 0.0
+    init_attn_std: float | None = None
+    init_proj_std: float | None = None
+    init_fc_std: float | None = None
+    factor: float = 1.0
+    
+    
+    def setup(self):
+        init_attn_std = self.init_attn_std or (self.dim**-.5)
+        init_proj_std = self.init_proj_std or init_attn_std * self.factor
+        init_fc_std = self.init_fc_std or (2*self.dim) ** -.5
+        
+        ################################################################
+        ############################# init #############################
+        ################################################################
+        
+        self.ls1 = LayerScale(self.dim, init_values=self.ls_init_value) if self.ls_init_value else nn.Identity()
+        self.attention_norm = self.norm_layer()
+        self.attention = CausalSelfAttention(
+            dim=self.dim,
+            num_heads=self.num_heads,
+            attn_drop=self.dropout_prob
+        )
+        self.ffn_norm = self.norm_layer()
+        ffn_hidden_dim = jnp.floor(self.dim * self.ffn_ratio).astype(jnp.int32)
+        self.feed_forward = Mlp(
+            # in_features=self.dim,
+            hidden_features=ffn_hidden_dim,
+            act_layer=self.act_layer
+        )
+        
+        self.ls2 = LayerScale(self.dim, init_values=self.ls_init_value) if self.ls_init_value else nn.Identity()
+        
+    def __call__(self, x):
+        x_attn = x + self.ls1(self.attention(self.attention_norm(x), self.is_causal))
+        x_ffn = x_attn + self.ls2(self.feed_forward(self.ffn_norm(x_attn)))
+        return x_ffn
