@@ -7,12 +7,11 @@ import jax.numpy as jnp
 import flax.linen as nn
 
 class RMSNorm(nn.Module):
-    dim: int
     eps: float = 1e-5
     
     @nn.compact
     def __call__(self, x):
-        self.weight = self.param("weight", nn.initializers.ones, (self.dim,))
+        self.weight = self.param("weight", nn.initializers.ones, (x.shape[-1],))
         norm = jax.lax.rsqrt(
             jnp.mean(
                 jnp.square(x.astype(jnp.float)), 
