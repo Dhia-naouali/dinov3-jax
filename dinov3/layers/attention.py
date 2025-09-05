@@ -101,20 +101,20 @@ class SelfAttention(nn.Module):
 
     def compute_attention(self, qkv, attn_bias, rope=None, deterministic=True):
         assert attn_bias is None
-        b, n, _ = qkv.shape
+        B, N, _ = qkv.shape
         
-        qkv = qkv.reshape(b, n, 3, self.num_heads, self.head_dim)
+        qkv = qkv.reshape(B, N, 3, self.num_heads, self.head_dim)
         q, k, v = jnp.moveaxis(qkv, 2, 0) # b, n, h, hd
         
         if rope is not None:
             q, k = self.apply_rope(q, k, rope)
 
         x = nn.dot_product_attention(q, k, v, deterministic=deterministic)
-        x = x.reshape(b, n, self.dim)
+        x = x.reshape(B, N, self.dim)
         return x
 
 
-    # def apply_list(self, x_list, attn_bias, rope_list=None, deterministic=True):
+    # def apply_list(self, x_list, attn_bias=None, rope_list=None, deterministic=True):
     #     assert len(x_list) == len(rope_list)
     #     x_flat, shapes, num_tokens = cat_keep_shapes(x_list)
     #     qkv_flat = self.qkv(x_flat)
@@ -128,7 +128,6 @@ class SelfAttention(nn.Module):
     #     return jax.vmap(apply_)(x_list, rope_list)
 
 
-
 class CausalSelfAttention(nn.Module):
     dim: int
     num_heads: int = 8
@@ -136,37 +135,44 @@ class CausalSelfAttention(nn.Module):
     proj_bias: bool = True
     attn_drop: float = 0.0
     proj_drop: float = 0.0
-
+    init_attn_std: float = None
+    init_proj_std: float = None
+    factor: float = 1.
+    
     def setup(self):
         self.head_dim = self.dim // self.num_heads
         self.scale = self.head_dim ** -.5
-        self.qkv = nn.Dense(self.dim*3, use_bias=self.qkv_bias)
-        self.proj = nn.Dense(self.dim, use_bias=self.proj_bias)
-        self.proj_drop = nn.Dropout(self.proj_drop)
 
-
-
-class CausalSelfAttention(nn.Module):
-    def init_weights(
-        self, init_attn_std: float | None = None, init_proj_std: float | None = None, factor: float = 1.0
-    ) -> None:
-        init_attn_std = init_attn_std or (self.dim**-0.5)
-        init_proj_std = init_proj_std or init_attn_std * factor
-        nn.init.normal_(self.qkv.weight, std=init_attn_std)
-        nn.init.normal_(self.proj.weight, std=init_proj_std)
-        if self.qkv.bias is not None:
-            nn.init.zeros_(self.qkv.bias)
-        if self.proj.bias is not None:
-            nn.init.zeros_(self.proj.bias)
-
-    def forward(self, x: Tensor, is_causal: bool = True) -> Tensor:
-        B, N, C = x.shape
-        qkv = self.qkv(x).reshape(B, N, 3, self.num_heads, C // self.num_heads)
-        q, k, v = torch.unbind(qkv, 2)
-        q, k, v = [t.transpose(1, 2) for t in [q, k, v]]
-        x = torch.nn.functional.scaled_dot_product_attention(
-            q, k, v, attn_mask=None, dropout_p=self.attn_drop if self.training else 0, is_causal=is_causal
+        # initializers
+        self.init_attn_std = self.init_attn_std or self.dim**-.5
+        self.init_proj_std = self.init_proj_std or self.init_attn_std * self.factor
+                
+        self.qkv = nn.Dense(
+            self.dim*3, 
+            use_bias=self.qkv_bias,
+            kernel_init=nn.initializers.normal(self.init_attn_std),
+            bias_init=nn.initializers.zeros
         )
-        x = x.transpose(1, 2).contiguous().view(B, N, C)
-        x = self.proj_drop(self.proj(x))
+        self.proj = nn.Dense(
+            self.dim, 
+            use_bias=self.proj_bias,
+            kernel_init=nn.initializers.normal(self.init_proj_std),
+            bias_init=nn.initializers.zeros
+        )
+        
+        self.proj_drop = nn.Dropout(self.proj_drop)
+    
+    
+    def __call__(self, x, is_causal=True, deterministic=True):
+        B, N, _ = x.shape
+        qkv = self.qkv(x).reshape(B, N, 3, self.num_heads, self.head_dim)
+        q, k, v = jnp.moveaxis(qkv, 2, 0) # b, n, h, hd
+        x = nn.dot_product_attention(
+            q, k, v,
+            mask=nn.make_causal_mask(jnp.ones((B, N))) if is_causal else None,
+            dropout_rate=self.attn_drop,
+            deterministic=deterministic
+        )
+        x = x.reshape(B, N, -1)
+        x = self.proj_drop(self.proj(x), deterministic=deterministic)
         return x
