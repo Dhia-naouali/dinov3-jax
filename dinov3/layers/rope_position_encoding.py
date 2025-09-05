@@ -44,7 +44,7 @@ class RopePositionEmbedding(nn.Module):
         self.periods = self.variable("constants", "periods", lambda: periods)
 
 
-    def __call__(self, x, *, H, W, deterministic=True, rng=None):
+    def __call__(self, *, H, W, deterministic=True, rng=None):
         d = {"dtype": self.dtype}
         
         # Prepare coords in range [-1, +1]
