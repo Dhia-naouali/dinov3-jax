@@ -6,8 +6,6 @@
 import jax.numpy as jnp
 
 
-
-
 def cat_keep_shapes(x_list):
     """
     input: list of arrays
@@ -30,13 +28,6 @@ def uncat_with_shapes(flattened, shapes, num_tokens):
     shapes_adjusted = [shape[:-1] + (flattened.shape[-1],) for shape in shapes]
     outputs_reshaped = [o.reshape(shape) for o, shape in zip(outputs_splitted, shapes_adjusted)]
     return outputs_reshaped
-
-
-
-
-
-
-
 
 
 
