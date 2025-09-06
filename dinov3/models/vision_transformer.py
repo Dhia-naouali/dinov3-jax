@@ -236,7 +236,6 @@ class DinoVisioinTransformer(nn.Module):
         return output
     
     
-    
     def forward_features(self, x, masks):
         if isinstance(x, jnp.array):
             return self.forward_features_list([x], [masks])[0] # a77a 2
@@ -303,6 +302,5 @@ class DinoVisioinTransformer(nn.Module):
             return ret
         
         return self.head(ret["x_norm_clstoken"])
-
 
 
