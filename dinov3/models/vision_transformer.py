@@ -48,7 +48,7 @@ dtype_dict = {
 
 
 
-class DinoVisioinTransformer(nn.Module):
+class DinoVisionTransformer(nn.Module):
     img_size: int = 224
     patch_size: int = 16
     in_chans: int = 3
@@ -89,14 +89,14 @@ class DinoVisioinTransformer(nn.Module):
         
         self.cls_token = self.param(
             "cls_token", 
-            nn.initializers..., 
+            nn.initializers.normal(.02), 
             (1, 1, self.embed_dim)
         )
         
         if self.n_storage_tokens > 0:
             self.storage_tokens = self.param(
                 "sotrage_tokens",
-                nn.initializers...,
+                nn.initializers.normal(.02),
                 (1, self.n_storage_tokens, self.embed_dim)
             )
         logger.info(f"using base={self.pos_embed_rope_base} for rope new")
@@ -304,3 +304,83 @@ class DinoVisioinTransformer(nn.Module):
         return self.head(ret["x_norm_clstoken"])
 
 
+
+def vit_small(patch_size=16, **kwargs):
+    return DinoVisionTransformer(
+        patch_size=patch_size,
+        embed_idm=384,
+        n_blocks=12,
+        num_heads=6,
+        ffn_ratio=4,
+        **kwargs
+    )
+
+
+
+def vit_base(patch_size=16, **kwargs):
+    return DinoVisionTransformer(
+        patch_size=patch_size,
+        embed_dim=768,
+        n_blocks=12,
+        num_heads=12,
+        ffn_ratio=4,
+        **kwargs,
+    )
+
+
+def vit_large(patch_size=16, **kwargs):
+    return DinoVisionTransformer(
+        patch_size=patch_size,
+        embed_dim=1024,
+        n_blocks=24,
+        num_heads=16,
+        ffn_ratio=4,
+        **kwargs,
+    )
+
+
+def vit_so400m(patch_size=16, **kwargs):
+    return DinoVisionTransformer(
+        patch_size=patch_size,
+        embed_dim=1152,
+        n_blocks=27,
+        num_heads=18,
+        ffn_ratio=3.777777778,
+        **kwargs,
+    )
+
+
+def vit_huge2(patch_size=16, **kwargs):
+    return DinoVisionTransformer(
+        patch_size=patch_size,
+        embed_dim=1280,
+        n_blocks=32,
+        num_heads=20,
+        ffn_ratio=4,
+        **kwargs,
+    )
+
+
+def vit_giant2(patch_size=16, **kwargs):
+    """
+    Close to ViT-giant, with embed-dim 1536 and 24 heads => embed-dim per head 64
+    """
+    return DinoVisionTransformer(
+        patch_size=patch_size,
+        embed_dim=1536,
+        n_blocks=40,
+        num_heads=24,
+        ffn_ratio=4,
+        **kwargs,
+    )
+    
+
+def vit_7b(patch_size=16, **kwargs):
+    return DinoVisionTransformer(
+        patch_size=patch_size,
+        embed_dim=4096,
+        n_blocks=40,
+        num_heads=32,
+        ffn_ratio=3,
+        **kwargs,
+    )
