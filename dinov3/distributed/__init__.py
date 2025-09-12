@@ -8,3 +8,15 @@
 # )
 
 # from .jax_distributed_primitives import gather_all_tensors, reduce_dict
+
+
+import jax
+
+def is_enabled():
+    return jax.device_count() > 1
+
+def get_world_size():
+    if jax.process_count() <= 1:
+        return 1
+
+    return jax.process_count()

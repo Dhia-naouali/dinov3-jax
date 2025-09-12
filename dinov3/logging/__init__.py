@@ -10,7 +10,7 @@ from typing import Optional
 
 from termcolor import colored
 
-from dinov3.distributed import TorchDistributedEnvironment
+# from dinov3.distributed import TorchDistributedEnvironment
 
 from dinov3.logging.helpers import MetricLogger, SmoothedValue
 
@@ -55,6 +55,8 @@ def _configure_logger(
     color: bool = True,
     log_to_stdout_only_in_main_process: bool = True,
 ):
+    import jax
+    is_main_process = jax.process_index() == 0
     """
     Configure a logger.
 
@@ -91,10 +93,10 @@ def _configure_logger(
     datefmt = "%Y%m%d %H:%M:%S"
     plain_formatter = logging.Formatter(fmt=fmt, datefmt=datefmt)
 
-    torch_env = TorchDistributedEnvironment()
+    # torch_env = TorchDistributedEnvironment()
 
     # rank 0 always logs to stdout, for other ranks it depends on log_to_stdout_only_in_main_process
-    should_log_to_stdout = torch_env.is_main_process or not log_to_stdout_only_in_main_process
+    should_log_to_stdout = is_main_process or not log_to_stdout_only_in_main_process
     if should_log_to_stdout:
         handler = logging.StreamHandler(stream=sys.stdout)
         handler.setLevel(logging.DEBUG)
@@ -118,8 +120,8 @@ def _configure_logger(
         else:
             filename = os.path.join(output, "logs", "log.txt")
 
-        if not torch_env.is_main_process:
-            filename = filename + f".rank{torch_env.rank}"
+        if not is_main_process:
+            filename = filename + f".rank{jax.process_index()}"
 
         os.makedirs(os.path.dirname(filename), exist_ok=True)
 
@@ -128,7 +130,7 @@ def _configure_logger(
         handler.setFormatter(plain_formatter)
         logger.addHandler(handler)
 
-    logger.debug(f"PyTorch distributed environment: {torch_env}")
+    logger.debug(f"PyTorch distributed environment: (###### TO FIX ######)")
     return logger
 
 

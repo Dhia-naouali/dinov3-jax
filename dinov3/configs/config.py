@@ -37,7 +37,7 @@ class DinoV3SetupArgs:
     
 
 def apply_scaling_rules_to_cfg(config):
-    assert distributed.is_enabled(), "setup distributed to get global size !"
+    # assert distributed.is_enabled(), "setup distributed to get global size !"
     if "schedules" in config:
         return config
     

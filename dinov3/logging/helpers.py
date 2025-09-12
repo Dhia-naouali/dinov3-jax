@@ -18,7 +18,7 @@ logger = logging.getLogger("dinov3")
 
 
 class SmoothedValue:
-    def __init__(self, window_size=2°, fmt=None):
+    def __init__(self, window_size=20, fmt=None):
         if fmt is None:
             fmt = "{median:.4f} ({global_avg:.4f})"
         self.deque = deque(maxlen=window_size)
@@ -73,7 +73,7 @@ class SmoothedValue:
             median=self.median,
             avg=self.avg,
             global_avg=self.global_avg,
-            max=self.max
+            max=self.max,
             value=self.value
         )
 

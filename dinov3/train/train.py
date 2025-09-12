@@ -13,7 +13,11 @@ import optax
 import jax.numpy as jnp
 
 from dinov3.train.cosine_lr_scheduler import CosineScheduler, linear_warmup_cosine_decay
+from dinov3.train.ssl_meta_arch import SSLMetaArch
+from dinov3.train.multidist_meta_arch import MultiDistillationMetaArch
 from dinov3.configs import setup_job, setup_config
+from dinov3.logging import setup_logging
+
 # from somewhere import distributed
 
 logger = logging.getLogger("dinov3")
@@ -223,15 +227,16 @@ def main(argv=None):
     if meta_arch is None:
         raise ValueError(f"Unkown MODEL.META_ARCHITECTURE {config.MODEL.META_ARCHITECTURE}")
 
+    logger.info(f"Making meta arch {meta_arch.__name__}")
 
-    main_key = jax.random.PRNGKey(config.seed)
-    main_key, init_key = jax.random.split(main_key)
-    input_shape = ...
-    print(config)
-    raise Exception()
-    
     model = meta_arch(config)
     # fill with nans to check for init
+    logger.info(f"Model after distributed #### TO FIX ####:\n{model}")
+
+    # main_key = jax.random.PRNGKey(12)
+    # main_key, init_key = jax.random.split(main_key)
+    # input_shape = ...
+    
     params = model.init(init_key, jnp.zeros(input_shape))
     
     # prepare for FSDP (replicate across devices ?)
