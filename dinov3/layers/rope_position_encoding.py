@@ -7,7 +7,7 @@ from typing import Literal
 
 import jax
 import flax.linen as nn
-import jax.numyp as jnp
+import jax.numpy as jnp
 
 
 class RopePositionEmbedding(nn.Module):

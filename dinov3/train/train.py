@@ -12,8 +12,9 @@ import jax
 import optax
 import jax.numpy as jnp
 
-from cosine_lr_scheduler import CosineScheduler, Linear_Warmup_Cosine_Decay
-from somewhere import distributed
+from dinov3.train.cosine_lr_scheduler import CosineScheduler, linear_warmup_cosine_decay
+from dinov3.configs import setup_job, setup_config
+# from somewhere import distributed
 
 logger = logging.getLogger("dinov3")
 
@@ -56,8 +57,8 @@ def build_schedulers(config):
     learning_rate = dict(
         base_value=config.optim["lr"],
         final_value=config.optim["min_lr"],
-        total_iters=config.optim["epochs"] * OFFICIAL_EPOCCH_LENGTH
-        warmup_iters=config.optim["warmup_epochs"] * OFFICIAL_EPOCCH_LENGTH
+        total_iters=config.optim["epochs"] * OFFICIAL_EPOCCH_LENGTH,
+        warmup_iters=config.optim["warmup_epochs"] * OFFICIAL_EPOCCH_LENGTH,
         start_warmup_value=0,
         trunc_extra=config.optim["scedule_trunc_extra"],
     )
@@ -183,12 +184,12 @@ def build_schedulers_v2(config):
         ),
     )
 
-    lr_schedule = Linear_Warmup_Cosine_Decay(**learning_rate)
-    wd_schedule = Linear_Warmup_Cosine_Decay(**weight_decay)
-    momentum_schedule = Linear_Warmup_Cosine_Decay(**momentum)
-    teacher_temp_schedule = Linear_Warmup_Cosine_Decay(**teacher_temp)
+    lr_schedule = linear_warmup_cosine_decay(**learning_rate)
+    wd_schedule = linear_warmup_cosine_decay(**weight_decay)
+    momentum_schedule = linear_warmup_cosine_decay(**momentum)
+    teacher_temp_schedule = linear_warmup_cosine_decay(**teacher_temp)
 
-    last_layer_lr_schedule = Linear_Warmup_Cosine_Decay(**learning_rate)
+    last_layer_lr_schedule = linear_warmup_cosine_decay(**learning_rate)
     last_layer_lr_schedule.schedule[: iter_per_epoch * config.schedules.lr.freeze_last_layer_epochs] = 0
     
     return lr_schedule, wd_schedule, momentum_schedule, teacher_temp_schedule, last_layer_lr_schedule
@@ -226,6 +227,8 @@ def main(argv=None):
     main_key = jax.random.PRNGKey(config.seed)
     main_key, init_key = jax.random.split(main_key)
     input_shape = ...
+    print(config)
+    raise Exception()
     
     model = meta_arch(config)
     # fill with nans to check for init

@@ -3,6 +3,7 @@
 # This software may be used and distributed in accordance with
 # the terms of the DINOv3 License Agreement.
 
+import random
 import jax.numpy as jnp
 
 
@@ -30,6 +31,15 @@ def uncat_with_shapes(flattened, shapes, num_tokens):
     return outputs_reshaped
 
 
+def fix_random_seeds(seed):
+    random.seed(seed)
+
+
+def count_parameters(params):
+    c = 0
+    for value in jax.tree_util.tree_leaves(params):
+        c += value.size
+    return c
 
 
 # def named_apply(

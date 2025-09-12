@@ -5,7 +5,7 @@
 import logging
 from pathlib import Path
 
-from . import vision_tr as vits
+from . import vision_transformer as vits
 
 logger = logging.getLogger("dinov3")
 

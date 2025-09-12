@@ -52,7 +52,7 @@ class SelfAttentionBlock(nn.Module):
         mlp_hidden_dim = int(self.dim * self.ffn_ratio)
         self.mlp = self.ffn_layer(
             hidden_features=mlp_hidden_dim,
-            act_layer=self.act_layer
+            act_layer=self.act_layer,
             drop=self.drop,
             use_bias=self.ffn_bias,
         )

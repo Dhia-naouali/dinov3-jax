@@ -2,4 +2,9 @@
 # Ported from the original PyTorch implementation by Meta AI
 # Original repository: https://github.com/facebookresearch/dinov3
 
-from .utils import cat_keep_shapes, uncat_with_shapes
+from .utils import (
+    cat_keep_shapes, 
+    uncat_with_shapes,
+    fix_random_seeds,
+    count_parameters
+)

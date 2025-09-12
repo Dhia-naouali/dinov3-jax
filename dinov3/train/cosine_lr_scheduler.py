@@ -44,7 +44,7 @@ class CosineScheduler:
         return self.schedule[itr]
 
 
-class Linear_Warmup_Cosine_Decay:
+class linear_warmup_cosine_decay:
     def __init__(
         self,
         start,

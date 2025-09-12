@@ -13,7 +13,7 @@ def pairwise_distance(x, y, eps=1e-8):
     return jnp.linalg.norm(x - y, ord=2, axis=-1) + eps
 
 
-class KoleoLoss(nn.Module):
+class KoLeoLoss(nn.Module):
     pdist: Callable = pairwise_distance
 
     def pairwise_NNs_inner(self, x):
