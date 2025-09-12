@@ -14,8 +14,11 @@ from typing import Any, List, Optional, Sequence, Tuple
 from omegaconf import DictConfig, OmegaConf
 
 import dinov3.distributed as distributed
-from dinov3.logging import cleanup_logging, setup_logging
-from dinov3.utils import fix_random_seeds, get_conda_env, get_sha
+# from dinov3.logging import cleanup_logging, setup_logging
+# from dinov3.logging import setup_logging
+# from dinov3.utils import fix_random_seeds, get_conda_env, get_sha
+from dinov3.utils import fix_random_seeds
+
 
 logger = logging.getLogger("dinov3")
 
@@ -49,7 +52,7 @@ def apply_scaling_rules_to_cfg(config):
     return config
 
 def write_config(config, output_dir, name="config.yaml"):
-    logger.inof(OmegaConf.to_yaml(config))
+    logger.info(OmegaConf.to_yaml(config))
     output_dir = os.path.abspath(output_dir)
     saved_config_path = os.path.join(output_dir, name)
     with open(saved_config_path, "w") as f:
@@ -81,7 +84,7 @@ def get_cfg_from_args(args: DinoV3SetupArgs, multidistillation=False, strict=Tru
 def setup_config(args: DinoV3SetupArgs, strict_cfg=True):
     config = get_cfg_from_args(args, strict=strict_cfg)
     logger.info("\n".join(
-        f"{k}: {str(v)}" for k, v in sorted(dict(vars(args)).itmes())
+        f"{k}: {str(v)}" for k, v in sorted(dict(vars(args)).items())
     ))
     
     if args.output_dir is not None:
@@ -97,15 +100,46 @@ def setup_multidistillation(args: DinoV3SetupArgs):
     ...
 
 
+
+
 def setup_job(
-    output_dir=None, 
-    distributed_enabled=True, 
-    logging_enabled=True, 
-    seed=0, 
-    restict_print_to_pain_process=True,
-    distributed_timeout: timedelta | None = None
+        output_dir=None,
+        distributed_enabled=True,
+        logging_enabled=True,
+        seed=12,
+        restricted_print_to_main_process=True,
+        distributed_timeout=None
 ):
-    ...
+    if output_dir is not None:
+        output_dir = os.path.relpath(output_dir)
+        os.makedirs(output_dir, exist_ok=True)
+    
+    # temp
+    if logging_enabled:
+        print("logging isn't setup atp")
+        # setup_logging(
+        #     output=output_dir,
+        #     level=logging.INOF,
+        #     log_to_stdout_only_in_main_process=restricted_print_to_main_process,
+        # )
+    
+    if distributed_enabled:
+        print("distributed thingy not setup atp")
+        # distributed.enable(
+        #     overwrite=True,
+
+        # )
+
+    if seed is not None:
+        # rank = distributed.get_rank()
+        # fix_random_seeds(seed + rank)
+        fix_random_seeds(seed) # temp
+    
+    # logger = logging.getLogger("dinov3")
+    # logger.info(f"git:\n    {get_sha()}\n")
+
+    # conda thingies ...
+    
 
 
 def exit_job(distributed_enabled=True, logging_enabled=True):
