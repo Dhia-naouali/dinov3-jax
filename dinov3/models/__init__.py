@@ -11,7 +11,7 @@ logger = logging.getLogger("dinov3")
 
 
 def build_model(args, only_teacher=False, img_size=224):
-    if "vits" in args.arch:
+    if "vit" in args.arch:
         vit_kwargs = dict(
             img_size=img_size,
             patch_size=args.patch_size,
@@ -55,7 +55,7 @@ def build_model_from_cfg(config, only_teacher=False):
     outputs = build_model(
         config.student,
         only_teacher=only_teacher,
-        img_size=config.crops_global_crops_size
+        img_size=config.crops.global_crops_size
         if isinstance(config.crops.global_crops_size, int)
         else max(config.crops.global_crops_size)
     )

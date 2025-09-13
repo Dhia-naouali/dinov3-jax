@@ -42,11 +42,11 @@ def _build_mlp(
 class DINOHead(nn.Module):
     in_dim: int
     out_dim: int
-    use_bn=False
-    nlayers=3
-    hidden_dim=2048
-    bottleneck_dim=256
-    mlp_bias=True
+    use_bn: bool = False
+    nlayers: int = 3
+    hidden_dim: int=2048
+    bottleneck_dim: int = 256
+    mlp_bias: bool = True
 
 
     def setup(self):

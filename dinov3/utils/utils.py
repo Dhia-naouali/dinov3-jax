@@ -3,6 +3,7 @@
 # This software may be used and distributed in accordance with
 # the terms of the DINOv3 License Agreement.
 
+import jax
 import random
 import jax.numpy as jnp
 
@@ -37,6 +38,7 @@ def fix_random_seeds(seed):
 
 def count_parameters(params):
     c = 0
+    import IPython; IPython.embed()
     for value in jax.tree_util.tree_leaves(params):
         c += value.size
     return c

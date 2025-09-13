@@ -7,6 +7,7 @@ import sys
 import math
 import logging
 import argparse
+from pathlib import Path
 
 import jax
 import optax
@@ -228,19 +229,31 @@ def main(argv=None):
         raise ValueError(f"Unkown MODEL.META_ARCHITECTURE {config.MODEL.META_ARCHITECTURE}")
 
     logger.info(f"Making meta arch {meta_arch.__name__}")
-
+    fake_batch = {
+        "collated_global_crops": jnp.ones((2 * 4, 3, 224, 224)),  # (2 global crops per image * batch_size=4)
+        "collated_local_crops": jnp.ones((8 * 4, 3, 96, 96)),     # (local crops)
+        "collated_masks": jnp.ones((4, 196)),                     # fake patch masks
+        "mask_indices_list": [jnp.arange(196)] * 4,               # indices
+        "masks_weight": jnp.ones((4,)),                           # weights
+        "n_masked_patches": jnp.array([50, 60, 70, 80]),
+        "upperbound": jnp.array([1.0]),
+        "global_batch_size": jnp.array(4),
+    }
+    key = jax.random.key(1)
     model = meta_arch(config)
     # fill with nans to check for init
     logger.info(f"Model after distributed #### TO FIX ####:\n{model}")
-
+    model.init(key, fake_batch)
+    # import IPython; IPython.embed()
     # main_key = jax.random.PRNGKey(12)
     # main_key, init_key = jax.random.split(main_key)
     # input_shape = ...
     
-    params = model.init(init_key, jnp.zeros(input_shape))
+    # params = model.init(init_key, jnp.zeros(input_shape))
     
     # prepare for FSDP (replicate across devices ?)
     logger.info(f"...") # jax.debug.visualize_array_sharding ???
+    print(args.eval_only)
     if args.eval_only:
         iteration = model.get_checkpointer_class()(
             model, save_dir=config.train.output_dir
@@ -250,6 +263,49 @@ def main(argv=None):
         
         return do_test(config, model, f"manual_{iteration}")
     do_train(config, model, resume=not args.no_resume)
+
+
+
+def build_optimizer(config, model_params):
+    return optax.adamw(model_params)
+
+
+def do_train(config, model, resume=False):
+    # no process subgroups
+    ckpt_dir = Path(config.train.output_dir, "ckpt").expanduser()
+
+    ckpt_dir.mkdir(parents=True, exist_ok=True)
+
+    params = model.init(...)
+    optimizer = build_optimizer(config, ...)
+    optimizer_state = optimizer.init(params)
+    (
+        lr_schedule,
+        wd_schedule,
+        momentum_schedule,
+        teacher_temp_schedule,
+        last_layer_lr_schedule
+    ) = build_schedulers(config)
+
+    if config.multidistillation.enabled:
+        register_dont_save__hooks(
+            model,
+            dont_save=["teacher params"]
+        )
+    
+    start_iter = 0
+    if ersume and (last_checkpoint_dir := find_latest_checkpoint(ckpt_dir)):
+        logger.inof(f"checkpoint found {last_checkpoint_dir}")
+        start_iter = (
+            load_checkpoint(
+                last_checkpoint_dir,
+                model=model,
+                optimizer=optimizer,
+                strict_loading=False,
+                # no process groups
+            )
+        ) + 1
+
 
 
 if __name__ == "__main__":

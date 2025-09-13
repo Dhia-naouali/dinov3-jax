@@ -31,16 +31,16 @@ class SSLMetaArch(nn.Module):
         student_backbone, teacher_backbone, embed_dim = build_model_from_cfg(self.config)
         # gc.collect()
         gram_backbone, _ = build_model_from_cfg(self.config, only_teacher=True)
-        logger.info(f"Number of parameters: {count_parameters(student_backbone)}")
+        # logger.info(f"Number of parameters: {count_parameters(student_backbone)}")
         
         self.student = {}
         self.teacher = {}
         self.gram_model = {}
 
-        self.student["backbone"] = student_backbone
-        self.teacher["backbone"] = teacher_backbone
-        self.gram_model["backbone"] = gram_backbone
-        logger.inof(f"OPTIONS -- architecture: embed_dim: {embed_dim}")
+        self.student_backbone = student_backbone
+        self.teacher_backbone = teacher_backbone
+        self.gram_model_backbone = gram_backbone
+        logger.info(f"OPTIONS -- architecture: embed_dim: {embed_dim}")
         self.embed_dim = embed_dim
         self.dino_out_dim = self.config.dino.head_n_prototypes
 
@@ -55,12 +55,12 @@ class SSLMetaArch(nn.Module):
         dino_head_class = partial(
             DINOHead,
             in_dim=embed_dim,
-            out_dim=self.config.dino_head_n_prototypes,
+            out_dim=self.config.dino.head_n_prototypes,
             hidden_dim=self.config.dino.head_nlayers
         )
 
-        self.student["dino_head"] = dino_head_class()
-        self.teacher["dino_head"] = dino_head_class
+        self.student_dino_head = dino_head_class()
+        self.teacher_dino_head = dino_head_class
         self.dino_loss = DINOLoss(self.dino_out_dim)
 
         logger.info("OPTIONS -- KOLEO")
@@ -68,8 +68,8 @@ class SSLMetaArch(nn.Module):
         logger.info(f"OPTIONS -- KOLEO -- distributed: {self.config.dino.koleo_loss_distributed}")
 
         if self.config.dino.koleo_loss_distributed:
-            logger.inof(f"OPTIONS -- KOLEO -- topk: {self.config.dino.koleo_topk}")
-            logger.inof(f"OPTIOINS -- KOLEO -- distributed_loss_group_size: {self.config.dino.koleo_distributed_loss_group_size}")
+            logger.info(f"OPTIONS -- KOLEO -- topk: {self.config.dino.koleo_topk}")
+            logger.info(f"OPTIOINS -- KOLEO -- distributed_loss_group_size: {self.config.dino.koleo_distributed_loss_group_size}")
             assert self.config.dino.koleo_distributed_replicas == 0, (
                 "Option dino.koleo_distributed_replicas is no longer supported"
             )
@@ -93,13 +93,13 @@ class SSLMetaArch(nn.Module):
             bottleneck_dim=self.config.ibot.head_bottleneck_dim,
             nlayers=self.config.ibot.head_nlayers,
         )
-        self.student["ibot_head"] = ibot_head_class()
-        self.teacher["ibot_head"] = ibot_head_class()
+        self.student_ibot_head = ibot_head_class()
+        self.teacher_ibot_head = ibot_head_class()
         self.ibot_patch_loss = iBOTPatchLoss(self.config.ibot.head_n_prototypes)
         
         
         self.model_ema = self.teacher # may be overwritten for distillation
-        logger.inof(f"Student and Teacher are built: they are both {self.config.student.arch} network")
+        logger.info(f"Student and Teacher are built: they are both {self.config.student.arch} network")
 
         if self.config.distillation.enabled:
             self._setup_distillation()
@@ -210,7 +210,7 @@ class SSLMetaArch(nn.Module):
             raise ValueError("config.crops.gram_teacher_crops_size should be None when gram.ema_teacher=True")
 
         self.student_crop_size = self.config.crops.global_crops_size
-        self.gram_global_teacher_resize_method = self.config.gram.global_teacher_resize_methode
+        self.gram_global_teacher_resize_method = self.config.gram.global_teacher_resize_method
         self;gram_global_teacher_resize_antialias = self.config.gram.global_teacher_resize_antialias
         logger.info(f"OPTIONS -- global crops student/teacher size: {self.student_crop_size}")
         logger.info(f"OPTIONS -- global crops GRAM teacher size: {self.config.crops.gram_teacher_crops_size}")
@@ -254,7 +254,8 @@ class SSLMetaArch(nn.Module):
 
 
 
-    def forward_backward(
+    def __call__(
+    # def forward_backward(
             self, data, *, teacher_temp, iteration=0, **ignored_kwargs
     ):
         del ignored_kwargs
@@ -339,8 +340,7 @@ class SSLMetaArch(nn.Module):
 
         # buffer
 
-
-
+    # def __call__(self, x):
 
 
     def get_student_output(self, *, global_crops, local_crops, upperbound, masks, mask_indices_list):
