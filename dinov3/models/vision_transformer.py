@@ -207,22 +207,22 @@ class DinoVisionTransformer(nn.Module):
         
         all_x = x
         output = []
-        
+
+
         for idx, (x, masks) in enumerate(zip(all_x, masks_list)):
-            if self.untie_cls_and_patch_norm or self.untie_global_and_local_cls_norm:
+            if self.untie_cls_and_patch_norms or self.untie_global_and_local_cls_norm:
                 if self.untie_global_and_local_cls_norm and not deterministic and idx == 1:
-                    x_norm_cls_reg = self.local_cls_norm(x[:, :, self.n_storage_tokens + 1])
+                    x_norm_cls_reg = self.local_cls_norm(x[:, : self.n_storage_tokens + 1])
                 elif self.untie_cls_and_patch_norms:
-                    x_norm_cls_reg = self.cls_norm(x[:, :, self.n_storage_tokens + 1])
+                    x_norm_cls_reg = self.cls_norm(x[:, : self.n_storage_tokens + 1])
                 else:
-                    x_norm_cls_reg = self.norm(x[:, :, self.n_storage_tokens + 1])
+                    x_norm_cls_reg = self.norm(x[:, : self.n_storage_tokens + 1])
                 
-                x_norm_patch = self.norm(x[:, self.n_storage_tokens + 1, :])
+                x_norm_patch = self.norm(x[:, self.n_storage_tokens + 1 :])
             else:
                 x_norm = self.norm(x)
-                x_norm_cls_reg = x_norm[:, :, self.n_storage_tokens + 1]
-                x_norm_patch = x_norm[:, self.n_storage_tokens + 1, :]
-            
+                x_norm_cls_reg = x_norm[:, : self.n_storage_tokens + 1]
+                x_norm_patch = x_norm[:, self.n_storage_tokens + 1 :]
             output.append(
                 {
                     "x_norm_clstoken": x_norm_cls_reg[:, 0],

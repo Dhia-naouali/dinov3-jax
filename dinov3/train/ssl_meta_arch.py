@@ -256,9 +256,10 @@ class SSLMetaArch(nn.Module):
 
     def __call__(
     # def forward_backward(
-            self, data, *, teacher_temp, iteration=0, **ignored_kwargs
+            self, data, *, teacher_temp, iteration=0, deterministic=True #, **ignored_kwargs
     ):
-        del ignored_kwargs
+        
+        # del ignored_kwargs
         metrics_dict = {}
 
         n_global_crops = 2
@@ -266,10 +267,10 @@ class SSLMetaArch(nn.Module):
         B = data["collated_local_crops"].shape[0] // n_local_crops
         assert data["collated_global_crops"].shape[0] == n_global_crops * B
         metrics_dict["local_batch_size"] = B
-        metrics_dict["global_batch_size"] = data["blobal_batch_size"]
+        metrics_dict["global_batch_size"] = data["global_batch_size"]
 
         global_crops = data["collated_global_crops"] # to device
-        local_crops = data["collated_collated_crops"] # to device
+        local_crops = data["collated_local_crops"] # to device
         masks = data["collated_masks"] # to device
         mask_indices_list = data["mask_indices_list"] # to device
         masks_weight = data["masks_weight"] # to device
@@ -288,7 +289,8 @@ class SSLMetaArch(nn.Module):
             teacher_temp=teacher_temp,
             n_masked_patches_tensor=n_masked_patches_tensor,
             mask_indices_list=mask_indices_list,
-            upperbound=data["upperbound"]
+            upperbound=data["upperbound"],
+            deterministic=deterministic
         )
 
         student_global, student_local = self.get_student_output(
@@ -328,17 +330,19 @@ class SSLMetaArch(nn.Module):
     
 
     def get_teacher_output(
-            self, images, *, upperbound, mask_indices_list, n_masked_patches_tensor
+            self, images, *, upperbound, mask_indices_list, teacher_temp, n_masked_patches_tensor, deterministic=True
     ):
         n_crops, B, rgb, H, W = images.shape
         images = images.reshape(-1, rgb, H, W)
 
-        backbone_out = self.teacher.backbone.apply(images, ...)
+        backbone_out = self.teacher_backbone(images, is_training=True, deterministic=deterministic)
         cls = backbone_out["x_norm_clstoken"] # n_crops * B, D
         reg = backbone_out["x_storage_tokens"] # n_crops, * B, R, D
         ibot_patch = backbone_out["x_norm_patchtokens"] # n_crops * B, P, D
-
-        # buffer
+        
+        buffer = ibot_patch.reshape(-1, ibot_patch.shape[-1])[mask_indices_list, ...]
+        masked_patches_after_head = self.teacher_ibot_head(buffer)
+        import IPython; IPython.embed()
 
     # def __call__(self, x):
 
