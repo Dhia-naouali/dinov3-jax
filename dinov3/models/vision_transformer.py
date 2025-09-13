@@ -127,17 +127,17 @@ class DinoVisionTransformer(nn.Module):
             SelfAttentionBlock(
                 dim=self.embed_dim,
                 num_heads=self.num_heads,
-                ffn_ratio=self.ffn_ratio_sequence[i],
+                ffn_ratio=ffn_ratio_sequence[i],
                 qkv_bias=self.qkv_bias,
                 proj_bias=self.proj_bias,
                 ffn_bias=self.ffn_bias,
                 drop_path=self.drop_path_rate,
-                norm_layer=self.norm_layer_cls,
+                norm_layer=norm_layer_cls,
                 act_layer=nn.gelu,
-                ffn_layer=self.ffn_layer_cls,
+                ffn_layer=ffn_layer_cls,
                 init_values=self.layerscale_init,
                 mask_k_bias=self.mask_k_bias,
-            ) for i in range(self.nblocks)
+            ) for i in range(self.n_blocks)
         ]
         
         self.chunked_blocks = False
@@ -153,7 +153,7 @@ class DinoVisionTransformer(nn.Module):
         else:
             self.local_cls_norm = None
         
-        self.head = nn.Identity()
+        self.head = lambda x: x
         self.mask_token = self.param(
             "mask_token",
             nn.initializers.zeros,
@@ -180,12 +180,12 @@ class DinoVisionTransformer(nn.Module):
         else:
             storage_tokens = jnp.empty(
                 (1, 0, cls_token.shape[-1]),
-                dtype=jnp.cls_token.dtype
+                dtype=cls_token.dtype
             )
         
         x = jnp.concatenate([
-            jnp.broadcast_to((B,) + cls_token.shape, cls_token),
-            jnp.broadcast_to((B,) + storage_tokens.shape, storage_tokens),
+            jnp.broadcast_to(cls_token, (B,) + cls_token.shape[1:]),
+            jnp.broadcast_to(storage_tokens, (B,) + storage_tokens.shape[1:]),
             x
         ], axis=1)
         
@@ -196,9 +196,9 @@ class DinoVisionTransformer(nn.Module):
         rope = []
         for t_x, t_masks in zip(x_list, masks_list):
             t2_x, hw_tuple = self.prepare_tokens_with_masks(t_x, t_masks)
-            x.append(t2_x); rope.appnd(hw_tuple)
+            x.append(t2_x); rope.append(hw_tuple)
             
-        for _, block in self.blocks:
+        for block in self.blocks:
             if self.rope_embed is not None:
                 rope_sincos = [self.rope_embed(H=H, W=W) for H, W in rope]
             else:
@@ -236,11 +236,11 @@ class DinoVisionTransformer(nn.Module):
         return output
     
     
-    def forward_features(self, x, masks):
-        if isinstance(x, jnp.array):
-            return self.forward_features_list([x], [masks])[0] # a77a 2
+    def forward_features(self, x, masks=None, deterministic=True):
+        if isinstance(x, jnp.ndarray):
+            return self.forward_features_list([x], [masks], deterministic=deterministic)[0] # a77a 2
         else:
-            return self.forward_features_list(x, masks)
+            return self.forward_features_list(x, masks, deterministic=deterministic)
         
     
     def _get_intermediate_layers_not_chunked(self, x, n=1, deterministic=True):
@@ -296,7 +296,8 @@ class DinoVisionTransformer(nn.Module):
             return tuple(zip(outputs, class_tokens, extra_tokens))
         
     
-    def __call__(self, *args, is_training=False, **kwargs):
+    def __call__(self, *args, is_training=False, deterministic=True, **kwargs):
+        # is_traingin is used to determin whether all forward pass results shoudl be returned or just the cls token
         ret = self.forward_features(*args, **kwargs)
         if is_training:
             return ret

@@ -110,7 +110,7 @@ class RopePositionEmbedding(nn.Module):
                 ))
                 coords *= rescale_hw
 
-        angles = 2 * math.pi * coords[:, :, None] / self.periods[None, None, :]
+        angles = 2 * math.pi * coords[:, :, None] / self.periods.value[None, None, :]
         angles = angles.reshape(angles.shape[0], -1)
         angles = jnp.concatenate([angles, angles], axis=-1)
         
