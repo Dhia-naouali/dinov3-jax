@@ -25,7 +25,7 @@ class SelfAttentionBlock(nn.Module):
     ffn_bias: bool = True
     drop: float = 0.0
     attn_drop: float = 0.0
-    init_values=None
+    init_values: float = None
     drop_path: float = 0.0
     act_layer: Callable[..., nn.Module] = nn.gelu
     norm_layer: Callable[..., nn.Module] = nn.LayerNorm
@@ -46,7 +46,7 @@ class SelfAttentionBlock(nn.Module):
         )
         self.ls1 = LayerScale(
             self.dim, init_values=self.init_values
-        ) if self.init_values else nn.Identity()
+        ) if self.init_values else lambda x: x
         
         self.norm2 = self.norm_layer()
         mlp_hidden_dim = int(self.dim * self.ffn_ratio)
@@ -59,7 +59,7 @@ class SelfAttentionBlock(nn.Module):
         
         self.ls2 = LayerScale(
             self.dim, init_values=self.init_values
-        ) if self.init_values else nn.Identity()
+        ) if self.init_values else lambda x: x
         self.sample_drop_ratio = self.drop_path
         
     @staticmethod
@@ -118,7 +118,7 @@ class SelfAttentionBlock(nn.Module):
         
         return x_ffn
     
-    def _apply_list(self, x_list, rope_list=None, deterministic=True):
+    def _forward_list(self, x_list, rope_list=None, deterministic=True):
         b_list = [x.shape[0] for x in x_list]
         sample_subset_sizes = [
             jnp.maximum(
@@ -201,7 +201,7 @@ class SelfAttentionBlock(nn.Module):
         return x_ffn
 
     def __call__(self, x_or_x_list, rope_or_rope_list=None, deterministic=True):
-        if isinstance(x_or_x_list, jnp.array):
+        if isinstance(x_or_x_list, jnp.ndarray):
             # a77a
             return self._apply_list([x_or_x_list], rope_list=[rope_or_rope_list], deterministic=deterministic)[0]
         elif isinstance(x_or_x_list, list):
@@ -238,7 +238,7 @@ class CausalSelfAttentionBlock(nn.Module):
         ############################# init #############################
         ################################################################
         
-        self.ls1 = LayerScale(self.dim, init_values=self.ls_init_value) if self.ls_init_value else nn.Identity()
+        self.ls1 = LayerScale(self.dim, init_values=self.ls_init_value) if self.ls_init_value else lambda x: x
         self.attention_norm = self.norm_layer()
         self.attention = CausalSelfAttention(
             dim=self.dim,
@@ -253,7 +253,7 @@ class CausalSelfAttentionBlock(nn.Module):
             act_layer=self.act_layer
         )
         
-        self.ls2 = LayerScale(self.dim, init_values=self.ls_init_value) if self.ls_init_value else nn.Identity()
+        self.ls2 = LayerScale(self.dim, init_values=self.ls_init_value) if self.ls_init_value else lambda x: x
         
     def __call__(self, x):
         x_attn = x + self.ls1(self.attention(self.attention_norm(x), self.is_causal))

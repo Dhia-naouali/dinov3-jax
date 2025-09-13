@@ -57,9 +57,9 @@ class SelfAttention(nn.Module):
         linear_class = LinearKMaskedBias if self.mask_k_bias else nn.Dense
 
         self.qkv = linear_class(self.dim * 3, use_bias=self.qkv_bias)
-        self.attn_drop = nn.Dropout(self.attn_drop)
+        # self.attn_drop = nn.Dropout(self.attn_drop) # was never called
         self.proj = nn.Dense(self.dim, use_bias=self.proj_bias)
-        self.proj_drop = nn.Dropout(self.proj_drop)
+        self.proj_drop_ = nn.Dropout(self.proj_drop)
 
 
     def apply_rope(self, q, k, rope):
@@ -95,7 +95,7 @@ class SelfAttention(nn.Module):
             deterministic=deterministic
         )
         x = self.proj(attn_v)
-        x = self.proj_drop(x, deterministic=deterministic)
+        x = self.proj_drop_(x, deterministic=deterministic)
         return x
     
 

@@ -25,22 +25,24 @@ class Mlp(nn.Module, ListForwardMixin):
     act_layer: Callable[..., nn.Module] = nn.gelu
     drop: float = 0.0
     use_bias: bool = True
-    
-    def setup(self):
-        # self.out_features = self.out_features or self.in_features
-        # self.hidden_features = self.hidden_features or self.in_features
-        self.fc1 = nn.Dense(self.hidden_features, use_bias=self.use_bias)
-        self.act = self.act_layer()
-        self.fc2 = nn.Dense(self.out_features, use_bias=self.use_bias)
-        self.drop = nn.Dropout(self.drop)
-    
-    
-    def __call__(self, x,deterministic=True):
-        x = self.fc1(x)
-        x = self.act(x)
-        x = self.drop(x, deterministic=deterministic)
-        x = self.fc2(x)
-        x = self.drop(x, deterministic=deterministic)
+
+
+    @nn.compact
+    def __call__(self, x, deterministic=True):
+        in_dim = x.shape[-1]
+        x = nn.Dense(
+            self.hidden_features or in_dim,
+            use_bias=self.use_bias
+        )(x)
+        x = self.act_layer(x)
+        x = nn.Dropout(self.drop)(x, deterministic=deterministic)
+
+        x = nn.Dense(
+            self.out_features or in_dim,
+            use_bias=self.use_bias
+        )(x)
+        x = self.act_layer(x)
+        x = nn.Dropout(self.drop)(x, deterministic=deterministic)
         return x
 
 
