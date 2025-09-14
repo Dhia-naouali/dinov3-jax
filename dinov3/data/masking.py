@@ -67,20 +67,20 @@ class MaskingGenerator:
                     break
             return delta
         
-        def __call__(self, num_masking_patches=0):
-            mask = np.zeros(shape=self.get_shape(), dtype=bool)
-            mask_count = 0
-            while mask_count < num_masking_patches:
-                max_mask_patches = num_masking_patches - mask_count
-                max_mask_patches = min(max_mask_patches, self.max_num_patches)
+    def __call__(self, num_masking_patches=0):
+        mask = np.zeros(shape=self.get_shape(), dtype=bool)
+        mask_count = 0
+        while mask_count < num_masking_patches:
+            max_mask_patches = num_masking_patches - mask_count
+            max_mask_patches = min(max_mask_patches, self.max_num_patches)
 
-                delta = self._mask(mask, max_mask_patches)
-                if delta == 0:
-                    break
-                else:
-                    mask_count += delta
-                
-            return self.complete_mask_randomly(self, mask, num_masking_patches):
+            delta = self._mask(mask, max_mask_patches)
+            if delta == 0:
+                break
+            else:
+                mask_count += delta
+            
+        return self.complete_mask_randomly(self, mask, num_masking_patches)
 
 
     def complete_mask_randomly(self, mask, num_masking_patches):

@@ -8,7 +8,7 @@ from typing import Optional, Callable
 
 from .datasets import ADE20K, CocoCaptions, ImageNet, ImageNet22k
 
-logger = logging.getLoader("dinov3")
+logger = logging.getLogger("dinov3")
 
 
 # copied as it is from the original repo
