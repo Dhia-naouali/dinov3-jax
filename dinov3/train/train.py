@@ -20,7 +20,7 @@ from dinov3.train.ssl_meta_arch import SSLMetaArch
 from dinov3.train.multidist_meta_arch import MultiDistillationMetaArch
 from dinov3.configs import setup_job, setup_config
 from dinov3.logging import setup_logging
-from dinov3.data import MaskingGenerator
+from dinov3.data import MaskingGenerator, make_dataset
 
 # from somewhere import distributed
 
@@ -277,19 +277,20 @@ def do_train(config, model_n_params, resume=False):
     # no process subgroups
     ckpt_dir = Path(config.train.output_dir, "ckpt").expanduser()
 
-    import IPython; IPython.embed()
     ckpt_dir.mkdir(parents=True, exist_ok=True)
     OFFICIAL_EPOCH_LENGTH = config.train.OFFICIAL_EPOCH_LENGTH
     max_iter = config.optim.epochs * OFFICIAL_EPOCH_LENGTH
     
     # global_batch_size = config.train.batch_size_per_gpu * distributed.get_world_size()
     global_batch_size = config.train.batch_size_per_gpu * jax.device_count()
-    
+
+    start_iter = 0    
     data_loader = build_multi_resolution_data_loader_from_cfg(
         config=config,
         model=model,
         start_iter=start_iter,
     )
+    import IPython; IPython.embed()
     
     
     optimizer = build_optimizer(config, ...)
@@ -340,7 +341,8 @@ def build_multi_resolution_data_loader_from_cfg(config, model, start_iter, seed=
     )
     loader_ratios = (
         [config.crops.global_local_crop_pairs_ratios]
-        if type(config.crops.global_local_crop_paris_ratios) in [int, float]
+        if type(config.crops.global_local_crop_pairs_ratios) in [int, float]
+        else config.crops.global_local_crop_pairs_ratios
     )
     assert len(global_crops_sizes) == len(local_crops_sizes)  == len(gram_teacher_crops_sizes) == len(loader_ratios)
 
@@ -376,7 +378,7 @@ def build_multi_resolution_data_loader_from_cfg(config, model, start_iter, seed=
 
 def build_data_loader_from_cfg(
         config,
-        model_,
+        model,
         start_iter
 ):
     img_size = config.crops.global_crops_size
@@ -395,21 +397,6 @@ def build_data_loader_from_cfg(
         local_batch_size = None
         dataloader_batch_size_per_gpu = config.train.batch_size_per_gpu
     
-    collate_fn = partial(
-        collate_data_and_cast,
-        mask_ratio_tuple=config.ibot.mask_ratio_min_max,
-        mask_probability=config.ibot.mask_sample_probability,
-        dtype={
-            "fp32": jnp.float32,
-            "fp16": jnp.float16,
-            "bf16": jnp.bfloat16
-        }[config.compute_precision.para_dtype]
-        n_tokens=n_tokens,
-        mask_generator=mask_generator,
-        random_circular_shift=config.ibot.mask_random_circular_shift,
-        local_batch_size=local_batch_size
-    )
-
     batch_size = dataloader_batch_size_per_gpu
     num_workers = config.train.num_workers
     dataset_path = config.train.dataset_path
@@ -419,7 +406,22 @@ def build_data_loader_from_cfg(
         target_transform=lambda _: (),
     )
 
-    if 
+    collate_fn = partial(
+        collate_data_and_cast,
+        mask_ratio_tuple=config.ibot.mask_ratio_min_max,
+        mask_probability=config.ibot.mask_sample_probability,
+        dtype={
+            "fp32": jnp.float32,
+            "fp16": jnp.float16,
+            "bf16": jnp.bfloat16
+        }[config.compute_precision.para_dtype],
+        n_tokens=n_tokens,
+        mask_generator=mask_generator,
+        random_circular_shift=config.ibot.mask_random_circular_shift,
+        local_batch_size=local_batch_size
+    )
+
+
 
     
 
