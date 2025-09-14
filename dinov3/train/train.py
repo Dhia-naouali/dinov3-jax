@@ -4,10 +4,12 @@
 
 import os
 import sys
+import copy
 import math
 import logging
 import argparse
 from pathlib import Path
+from functools import partial
 
 import jax
 import optax
@@ -18,6 +20,7 @@ from dinov3.train.ssl_meta_arch import SSLMetaArch
 from dinov3.train.multidist_meta_arch import MultiDistillationMetaArch
 from dinov3.configs import setup_job, setup_config
 from dinov3.logging import setup_logging
+from dinov3.data import MaskingGenerator
 
 # from somewhere import distributed
 
@@ -243,8 +246,7 @@ def main(argv=None):
     model = meta_arch(config)
     # fill with nans to check for init
     logger.info(f"Model after distributed #### TO FIX ####:\n{model}")
-    model.init(key, fake_batch, teacher_temp=.7, iteration=0)
-    # import IPython; IPython.embed()
+    init_params = model.init(key, fake_batch, teacher_temp=.7, iteration=0)
     # main_key = jax.random.PRNGKey(12)
     # main_key, init_key = jax.random.split(main_key)
     # input_shape = ...
@@ -262,7 +264,7 @@ def main(argv=None):
         ).get("teration", 1) + 1
         
         return do_test(config, model, f"manual_{iteration}")
-    do_train(config, model, resume=not args.no_resume)
+    do_train(config, (model, init_params), resume=not args.no_resume)
 
 
 
@@ -270,15 +272,28 @@ def build_optimizer(config, model_params):
     return optax.adamw(model_params)
 
 
-def do_train(config, model, resume=False):
+def do_train(config, model_n_params, resume=False):
+    model, init_params = model_n_params
     # no process subgroups
     ckpt_dir = Path(config.train.output_dir, "ckpt").expanduser()
 
+    import IPython; IPython.embed()
     ckpt_dir.mkdir(parents=True, exist_ok=True)
-
-    params = model.init(...)
+    OFFICIAL_EPOCH_LENGTH = config.train.OFFICIAL_EPOCH_LENGTH
+    max_iter = config.optim.epochs * OFFICIAL_EPOCH_LENGTH
+    
+    # global_batch_size = config.train.batch_size_per_gpu * distributed.get_world_size()
+    global_batch_size = config.train.batch_size_per_gpu * jax.device_count()
+    
+    data_loader = build_multi_resolution_data_loader_from_cfg(
+        config=config,
+        model=model,
+        start_iter=start_iter,
+    )
+    
+    
     optimizer = build_optimizer(config, ...)
-    optimizer_state = optimizer.init(params)
+    optimizer_state = optimizer.init(init_params)
     (
         lr_schedule,
         wd_schedule,
@@ -307,6 +322,106 @@ def do_train(config, model, resume=False):
         ) + 1
 
 
+def build_multi_resolution_data_loader_from_cfg(config, model, start_iter, seed=65537):
+    global_crops_sizes = (
+        [config.crops.local_crops_size] 
+        if isinstance(config.crops.global_crops_size, int) 
+        else config.crops.blobal_crops_size
+    )
+    local_crops_sizes = (
+        [config.crops.gram_teacher_crops_size]
+        if isinstance(config.crops.local_crops_size, int)
+        else config.crops.local_crops_size
+    )
+    gram_teacher_crops_sizes = (
+        [config.crops.gram_teacher_crops_size]
+        if config.crops.gram_teacher_crops_size is None or isinstance(config.crops.gram_teacher_crops_size, int)
+        else config.crops.gram_teacher_crops_size
+    )
+    loader_ratios = (
+        [config.crops.global_local_crop_pairs_ratios]
+        if type(config.crops.global_local_crop_paris_ratios) in [int, float]
+    )
+    assert len(global_crops_sizes) == len(local_crops_sizes)  == len(gram_teacher_crops_sizes) == len(loader_ratios)
+
+    loaders = []
+    for increment, (
+        global_crops_size_i, 
+        local_crops_size_i, 
+        gram_teacher_crops_size_i
+    ) in enumerate(zip(
+        global_crops_sizes, local_crops_sizes, gram_teacher_crops_sizes
+    )):
+        config_i = copy.deepcopy(config)
+        config_i.crops.global_crops_size = global_crops_size_i
+        config_i.crops.local_crops_size = local_crops_size_i
+        config_i.crops.gram_teacher_crops_size = gram_teacher_crops_size_i
+        config_i.train.seed = config.train.seed + increment + 1
+        loaders.append(build_data_loader_from_cfg(
+            config=config_i, model=model, start_iter=start_iter
+        ))
+    
+    if len(loaders) == 1:
+        data_loader = loaders[0]
+    else:
+        data_loader = CombineDataLoader(
+            loaders_with_ratios=zip(loaders, loader_ratios),
+            batch_size=config.train.batch_size_per_gpu,
+            combining_mode=0,
+            name="MultiResDL"
+        )
+    return data_loader
+
+
+
+def build_data_loader_from_cfg(
+        config,
+        model_,
+        start_iter
+):
+    img_size = config.crops.global_crops_size
+    patch_size = config.student.patch_size
+    n_tokens = (img_size // patch_size) ** 2
+    mask_generator = MaskingGenerator(
+        input_size=(img_size // patch_size, img_size // patch_size),
+        max_num_patches=.5 * img_size // patch_size * img_size // patch_size
+    )
+
+    if config.multidistillation.enabled:
+        assert config.multidistillation.global_batch_size % 4 == 4, "to fix"
+        # ...
+        # dataloader_batch_size_per_gpu = ...
+    else:
+        local_batch_size = None
+        dataloader_batch_size_per_gpu = config.train.batch_size_per_gpu
+    
+    collate_fn = partial(
+        collate_data_and_cast,
+        mask_ratio_tuple=config.ibot.mask_ratio_min_max,
+        mask_probability=config.ibot.mask_sample_probability,
+        dtype={
+            "fp32": jnp.float32,
+            "fp16": jnp.float16,
+            "bf16": jnp.bfloat16
+        }[config.compute_precision.para_dtype]
+        n_tokens=n_tokens,
+        mask_generator=mask_generator,
+        random_circular_shift=config.ibot.mask_random_circular_shift,
+        local_batch_size=local_batch_size
+    )
+
+    batch_size = dataloader_batch_size_per_gpu
+    num_workers = config.train.num_workers
+    dataset_path = config.train.dataset_path
+    dataset = make_dataset(
+        dataset_str=dataset_path,
+        transform=...,
+        target_transform=lambda _: (),
+    )
+
+    if 
+
+    
 
 if __name__ == "__main__":
     main()

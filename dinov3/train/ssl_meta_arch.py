@@ -314,6 +314,19 @@ class SSLMetaArch(nn.Module):
             )
         else:
             gram_global = {}
+
+        # temp forward only implementation
+        return dict(
+            teacher_global=teacher_global,
+            student_global=student_global,
+            student_local=student_local,
+            gram_global=gram_global,
+            masks=masks,
+            mask_indices_list=mask_indices_list,
+            masks_weight=masks_weight,
+            iteration=iteration,
+        )
+        
         
 
         loss_accumulator, loss_dict = self.compute_losses(
@@ -480,7 +493,6 @@ class SSLMetaArch(nn.Module):
         loss_dict["koleo_loss"] = koleo_loss
         loss_accumulator += self.dino_koleo_loss_weight * koleo_scale * koleo_loss
 
-        import IPython; IPython.embed()
         ibot_patch_loss = self.ibot_patch_loss.forward_masked(
             student_global["masked_patch_after_head"],
             teacher_global["masked_patch_centered"],
