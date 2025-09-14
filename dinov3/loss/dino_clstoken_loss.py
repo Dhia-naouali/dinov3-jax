@@ -35,14 +35,19 @@ class DINOLoss(nn.Module):
         Q = jnp.exp(teacher_output / teacher_temp).T
         B = Q.shape[1] * world_size
         K = Q.shape[0]
+
+        sum_Q = jnp.sum(Q)
+
+        if world_size > 1:
+            sum_Q = jax.lax.psum(sum_Q, axis_name="batch")
         
-        Q /= jax.lax.psum(jnp.sum(Q), axis_name="batch")
-        
+        Q /= sum_Q
         for _ in range(n_iterations):
             # rows normalization
-            local_sum_rows = jnp.sum(Q, axis=1, keepdims=True)
-            global_sum_rows = jax.lax.psum(local_sum_rows, axis_name="batch")
-            Q /= global_sum_rows
+            sum_of_rows = jnp.sum(Q, axis=1, keepdims=True)
+            if world_size > 1:
+                sum_of_rows = jax.lax.psum(sum_of_rows, axis_name="batch")
+            Q /= sum_of_rows
             Q /= K
             
             # columns normalization
@@ -62,10 +67,9 @@ class DINOLoss(nn.Module):
         def ignore_diagonal_fn(operands):
             student_probs, teacher_probs, B, S, T = operands
             loss = -jnp.einsum("sbk, tbk -> st", student_probs, teacher_probs)
+
+            loss = jnp.fill_diagonal(loss, 0., inplace=False)
             M = jnp.minimum(S, T)
-            loss = loss.at[
-                jnp.diag_indices(M)
-            ].set(0.)
             return loss.sum() / (B * S * T - B * M)
 
         def no_ignore_diagonal_fn(operands):

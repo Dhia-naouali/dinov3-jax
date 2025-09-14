@@ -166,6 +166,7 @@ class DinoVisionTransformer(nn.Module):
         x = x.reshape(B, -1, C)
         
         if masks is not None:
+
             x = jnp.where(
                 masks[..., None],
                 self.mask_token.astype(x.dtype)[None, ...],

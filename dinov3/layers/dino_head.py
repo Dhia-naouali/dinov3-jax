@@ -23,7 +23,7 @@ def _build_mlp(
             lower=-1., 
             upper=1.
         ), # default values in torch.nn.init.trunc_normal_
-        bias_init=nn.initializer.zeros
+        bias_init=nn.initializers.zeros
         )
 
     if nlayers == 1:
@@ -34,9 +34,9 @@ def _build_mlp(
         layers.append(linear(hidden_dim))
         if use_bn:
             layers.append(nn.BatchNorm())
-        layers.append(nn.gelu())
+        layers.append(nn.gelu)
     layers.append(linear(bottleneck_dim))
-    return nn.Sequential(*layers)
+    return nn.Sequential(layers)
 
 
 class DINOHead(nn.Module):
@@ -44,7 +44,7 @@ class DINOHead(nn.Module):
     out_dim: int
     use_bn: bool = False
     nlayers: int = 3
-    hidden_dim: int=2048
+    hidden_dim: int = 2048
     bottleneck_dim: int = 256
     mlp_bias: bool = True
 
@@ -52,7 +52,7 @@ class DINOHead(nn.Module):
     def setup(self):
         self.mlp = _build_mlp(
             self.nlayers,
-            self.in_dim,
+            # self.in_dim,
             self.bottleneck_dim,
             hidden_dim=self.hidden_dim,
             use_bn=self.use_bn,
@@ -66,7 +66,7 @@ class DINOHead(nn.Module):
                 lower=-1., 
                 upper=1.
             ),
-            bias_init=nn.initializer.zeros
+            bias_init=nn.initializers.zeros
         )
 
 

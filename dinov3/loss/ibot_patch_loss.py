@@ -10,32 +10,6 @@ def lossfunc(t, s, temp):
     return jnp.sum(t * nn.log_softmax(s / temp, axis=-1), axis=-1)
 
 
-# SinkhornKnoppTeacher
-def sinkhorn_knopp_teacher(
-    teacher_output, teacher_temp, n_masked_patches_tensor, n_iterations=3
-):
-    Q = jnp.exp(teacher_output / teacher_temp).T
-    B = jax.lax.psum(n_masked_patches_tensor, axis_name="batch")
-    K = Q.shape[0]
-
-    local_sum_Q = jnp.sum(Q)
-    Q /= jax.lax.psum(local_sum_Q, axis_name="batch")
-    
-    for _ in range(n_iterations):
-        # rows normalization
-        local_sum_rows = jnp.sum(Q, axis=1, keepdims=True)
-        global_sum_rows = jax.lax.psum(local_sum_rows, axis_name="batch")
-        Q /= global_sum_rows
-        Q /= K
-        
-        # columns normalization
-        Q /= jnp.sum(Q, axis=0, keepdims=True)
-        Q /= B
-
-    Q *= B
-    return Q.T
-
-
 
 class iBOTPatchLoss(nn.Module):
     patch_out_dim: int
@@ -64,7 +38,7 @@ class iBOTPatchLoss(nn.Module):
         loss = jnp.sum(loss * student_masks_flat, axis=-1) / student_masks_flat.sum(axis=-1).clip(1., jnp.inf)
         return - loss.mean()
 
-    def apply_masked(
+    def forward_masked(
         self,
         student_patch_tokens_masked,
         teacher_patch_tokens_masked,
@@ -84,7 +58,7 @@ class iBOTPatchLoss(nn.Module):
             )
         if n_masked_patches is not None:
             loss = loss[:n_masked_patches]
-        
+        import IPython; IPython.embed()
         loss = loss * masks_weight
         return -loss.sum() / student_masks_flat.shape[0]
 
@@ -93,3 +67,39 @@ class iBOTPatchLoss(nn.Module):
         global_center = jax.lax.pmean(local_center, axis_name="batch")
         self.center.value = self.center.value * self.center_momentum +\
             global_center * (1 - self.center_momentum)
+
+
+    # SinkhornKnoppTeacher
+    def sinkhorn_knopp_teacher(
+        self, teacher_output, teacher_temp, n_masked_patches_tensor, n_iterations=3
+    ):
+        world_size = jax.device_count()
+        Q = jnp.exp(teacher_output / teacher_temp).T
+        B = n_masked_patches_tensor
+        if world_size > 1:
+            B = jax.lax.psum(B, axis_name="batch")
+        else:
+            B = jnp.sum(B)
+        K = Q.shape[0]
+
+        sum_Q = jnp.sum(Q)
+        if world_size > 1:
+            sum_Q = jax.lax.psum(sum_Q, axis_name="batch")
+
+        Q /= sum_Q
+        
+        for _ in range(n_iterations):
+            # rows normalization
+            sum_of_rows = jnp.sum(Q, axis=1, keepdims=True)
+            if world_size > 1:
+                sum_of_rows = jax.lax.psum(sum_of_rows, axis_name="batch")
+        
+            Q /= sum_of_rows
+            Q /= K
+            
+            # columns normalization
+            Q /= jnp.sum(Q, axis=0, keepdims=True)
+            Q /= B
+
+        Q *= B
+        return Q.T

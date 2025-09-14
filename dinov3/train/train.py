@@ -230,20 +230,20 @@ def main(argv=None):
 
     logger.info(f"Making meta arch {meta_arch.__name__}")
     fake_batch = {
-        "collated_global_crops": jnp.ones((2 * 4, 3, 224, 224)),  # (2 global crops per image * batch_size=4)
-        "collated_local_crops": jnp.ones((8 * 4, 3, 96, 96)),     # (local crops)
-        "collated_masks": jnp.ones((4, 196)),                     # fake patch masks
-        "mask_indices_list": [jnp.arange(196)] * 4,               # indices
-        "masks_weight": jnp.ones((4,)),                           # weights
+        "collated_global_crops": jnp.ones((2 * 4, 224, 224, 3)),  # (2 global crops per image * batch_size=4)
+        "collated_local_crops": jnp.ones((8 * 4, 96, 96, 3)),     # (local crops)
+        "collated_masks": jnp.ones((8, 196)),                     # fake patch masks
+        "mask_indices_list": jnp.arange(68*4),                    # indices
+        "masks_weight": jnp.ones((8,)),                           # weights
         "n_masked_patches": jnp.array([50, 60, 70, 80]),
-        "upperbound": jnp.array([1.0]),
-        "global_batch_size": jnp.array(4),
+        "upperbound": 1.0,
+        "global_batch_size": 4,
     }
     key = jax.random.key(1)
     model = meta_arch(config)
     # fill with nans to check for init
     logger.info(f"Model after distributed #### TO FIX ####:\n{model}")
-    model.init(key, fake_batch)
+    model.init(key, fake_batch, teacher_temp=.7, iteration=0)
     # import IPython; IPython.embed()
     # main_key = jax.random.PRNGKey(12)
     # main_key, init_key = jax.random.split(main_key)

@@ -1,4 +1,4 @@
-# DINOv3 in Flax/JAX
+# DINOv3 in Flax/AX
 # Ported from the original PyTorch implementation by Meta AI
 # Original repository: https://github.com/facebookresearch/dinov3
 
@@ -8,6 +8,7 @@ from functools import partial
 from omegaconf import OmegaConf
 from typing import Any
 
+import jax.numpy as jnp
 import flax.linen as nn
 from dinov3.models import build_model_from_cfg
 from dinov3.utils import count_parameters
@@ -60,7 +61,7 @@ class SSLMetaArch(nn.Module):
         )
 
         self.student_dino_head = dino_head_class()
-        self.teacher_dino_head = dino_head_class
+        self.teacher_dino_head = dino_head_class()
         self.dino_loss = DINOLoss(self.dino_out_dim)
 
         logger.info("OPTIONS -- KOLEO")
@@ -211,7 +212,7 @@ class SSLMetaArch(nn.Module):
 
         self.student_crop_size = self.config.crops.global_crops_size
         self.gram_global_teacher_resize_method = self.config.gram.global_teacher_resize_method
-        self;gram_global_teacher_resize_antialias = self.config.gram.global_teacher_resize_antialias
+        self.gram_global_teacher_resize_antialias = self.config.gram.global_teacher_resize_antialias
         logger.info(f"OPTIONS -- global crops student/teacher size: {self.student_crop_size}")
         logger.info(f"OPTIONS -- global crops GRAM teacher size: {self.config.crops.gram_teacher_crops_size}")
         logger.info(f"OPTIONS -- global crops GRAM teacher resize method: {self.config.gram.global_teacher_resize_method}")
@@ -301,9 +302,10 @@ class SSLMetaArch(nn.Module):
             mask_indices_list=mask_indices_list
         )
 
+
         if self.gram_use_loss:
             gram_global = self.get_gram_teacher_output(
-                gram_teacher_crops.reshpae(n_global_crops, B, *gram_teacher_crops.shpae[1:]) 
+                gram_teacher_crops.reshpae(n_global_crops, B, * gram_teacher_crops.shpae[1:]) 
                     if gram_teacher_crops is not None else None,
                 masks=masks,
                 teacher_global=teacher_global,
@@ -325,6 +327,7 @@ class SSLMetaArch(nn.Module):
             iteration=iteration,
         )
         
+        import IPython; IPython.embed()
         # back prop loss
         return loss_accumulator, metrics_dict | loss_dict
     
@@ -341,21 +344,43 @@ class SSLMetaArch(nn.Module):
         ibot_patch = backbone_out["x_norm_patchtokens"] # n_crops * B, P, D
         
         buffer = ibot_patch.reshape(-1, ibot_patch.shape[-1])[mask_indices_list, ...]
-        masked_patches_after_head = self.teacher_ibot_head(buffer)
-        import IPython; IPython.embed()
+        masked_patch_after_head = self.teacher_ibot_head(buffer)
 
-    # def __call__(self, x):
+        cls_after_head = self.teacher_dino_head(cls)
+
+        cls_centered = self.dino_loss.sinkhorn_knopp_teacher(
+            cls_after_head,
+            teacher_temp=teacher_temp,
+        ).reshape(n_crops, B, -1)
+        
+        masked_patch_centered = self.ibot_patch_loss.sinkhorn_knopp_teacher(
+            masked_patch_after_head,
+            teacher_temp=teacher_temp,
+            n_masked_patches_tensor=n_masked_patches_tensor
+        )
+
+        return {
+            "cls_pre_head": cls.reshape((n_crops, B) + cls.shape[1:]),                          # [n_crops, B, D]
+            "reg_pre_head": reg.reshape((n_crops, B) + reg.shape[1:]),                          # [n_crops, B, R, D]
+            "patch_pre_head": ibot_patch.reshape((n_crops, B) + ibot_patch.shape[1:]),          # [n_crops, B, P, D]
+            "cls_after_head": cls_after_head.reshape((n_crops, B) + cls_after_head.shape[1:]),  # [n_crops, B, K]
+            "cls_centered": cls_centered,  # [n_crops, B, K]
+            "masked_patch_centered": masked_patch_centered,  # [n_masked_patches, K]
+        }
+
 
 
     def get_student_output(self, *, global_crops, local_crops, upperbound, masks, mask_indices_list):
-        n_global_crops, B, rgb, H, W = global_crops.shape
-        n_local_crops, B, rgb, H, W = local_crops.shape
+        n_global_crops, B, H, W, rgb = global_crops.shape
+        n_local_crops, B, h, w, rgb = local_crops.shape
+        
+        
+        global_crops = global_crops.reshape(-1, H, W, rgb) # H and W aren't the same in local and global crops
 
-        global_crops = global_crops.rehsape(-1, rgb, H, W)
-
-        global_out, local_out = self.student.backbone(
-            [global_crops, local_crops.reshape(-1, rgb, H, W)],
-            masks=[masks if not self.is_distillabtion_enabled else None, None],
+        
+        global_out, local_out = self.student_backbone(
+            [global_crops, local_crops.reshape(-1, h, w, rgb)],
+            masks=[masks if not self.is_distillation_enabled else None, None],
             is_training=True,
         )
 
@@ -371,7 +396,129 @@ class SSLMetaArch(nn.Module):
             local_out["x_norm_patchtokens"]
         )
 
-        masked_patches_pre_head = ...
+        masked_patches_pre_head = g_patch.reshape(-1, g_patch.shape[-1])[mask_indices_list, ...]
+        global_masked_patch_after_head = self.student_dino_head(masked_patches_pre_head)
 
-        
+        buffer = [g_cls, l_cls]
+        buffer_split = g_cls.shape[0]
 
+
+        buffer = jnp.concatenate(buffer, axis=0)
+        buffer = self.student_dino_head(buffer)
+        g_buffer = buffer[:buffer_split]
+        l_buffer = buffer[buffer_split:]
+
+
+        global_out = {
+            "cls_pre_head": g_cls.reshape((n_global_crops, B) + g_cls.shape[1:]),            # [n_global_crops, B, D]
+            "reg_pre_head": g_reg.reshape((n_global_crops, B) + g_reg.shape[1:]),            # [n_global_crops, B, R, D]
+            "patch_pre_head": g_patch.reshape((n_global_crops, B) + g_patch.shape[1:]),      # [n_global_crops, B, P, D]
+            "cls_after_head": g_buffer.reshape((n_global_crops, B) + g_buffer.shape[1:]),    # [n_global_crops, B, K],
+            "masked_patch_after_head": global_masked_patch_after_head,                       # [n_masked_patches, K]
+            "masked_patch_pre_head": masked_patches_pre_head,                                # [n_masked_patches, D]
+        }
+        local_out = {
+            "cls_pre_head": l_cls.reshape((n_local_crops, B) + l_cls.shape[1:]),             # [n_local_crops, B, D]
+            "reg_pre_head": l_reg.reshape((n_local_crops, B) + l_reg.shape[1:]),             # [n_local_crops, B, R, D]
+            "patch_pre_head": l_patch.reshape((n_local_crops, B) + l_patch.shape[1:]),       # [n_local_crops, B, P, D]
+            "cls_after_head": l_buffer.reshape((n_local_crops, B) + l_buffer.shape[1:]),     # [n_local_crops, B, K],
+        }
+
+        return global_out, local_out
+
+       
+    def compute_losses(
+            self,
+            *,
+            teacher_global, 
+            student_global, 
+            student_local, 
+            gram_global,
+            masks, 
+            mask_indices_list, 
+            masks_weight, 
+            iteration   
+    ):
+        n_global_crops = student_global["cls_after_head"].shape[0]
+        n_local_crops = student_local["cls_after_head"].shape[0]
+        loss_dict = {}
+        loss_accumulator = 0.
+
+        dino_global_terms = (
+            n_global_crops * (n_global_crops - 1) if self.dino_global_ignore_diagonal else n_global_crops**2
+        )
+        dino_local_terms = n_global_crops * n_local_crops
+        dino_global_scale = dino_global_terms / (dino_global_terms + dino_local_terms)
+        dino_local_scale = dino_local_terms / (dino_global_terms + dino_local_terms)
+        koleo_scale = n_global_crops
+
+        dino_local_crops_loss = self.dino_loss(
+            student_logits=student_local["cls_after_head"],
+            teacher_probs=teacher_global["cls_centered"],
+        )
+        loss_dict["dino_local_crops_loss"] = dino_local_crops_loss
+
+        if self.config.dino.reweight_dino_local_loss:
+            local_weitht = self.dino_local_loss_schedule[iteration]
+        else:
+            local_weight = 1.
+
+        loss_dict["dino_local_loss_weight"] = local_weight
+        loss_accumulator += self.dino_loss_weight * dino_local_scale * local_weight * dino_local_crops_loss
+
+        dino_global_crops_loss = self.dino_loss(
+            student_logits=student_global["cls_after_head"],
+            teacher_probs=teacher_global["cls_centered"],
+            ignore_diagonal=self.dino_global_ignore_diagonal
+        )
+
+        loss_dict["dino_global_crops_loss"] = dino_global_crops_loss
+        loss_accumulator += self.dino_loss_weight * dino_global_scale * dino_global_crops_loss
+
+
+        koleo_loss = sum(self.koleo_loss(x) for x in student_global["cls_pre_head"]) / n_global_crops
+        loss_dict["koleo_loss"] = koleo_loss
+        loss_accumulator += self.dino_koleo_loss_weight * koleo_scale * koleo_loss
+
+        import IPython; IPython.embed()
+        ibot_patch_loss = self.ibot_patch_loss.forward_masked(
+            student_global["masked_patch_after_head"],
+            teacher_global["masked_patch_centered"],
+            student_masks_flat=masks,
+            n_masked_patches=mask_indices_list.shape[0],
+            masks_weight=masks_weight,
+        )
+        loss_dict["ibot_loss"] = ibot_patch_loss
+        loss_accumulator += self.ibot_loss_weight * ibot_patch_loss
+
+        if self.gram_useloss:
+            gram_loss = self.gram_loss(
+                gram_global["student_patches"],
+                gram_global["teacher_patches"],
+                img_level=self.gram_img_level
+            )
+
+            if self.gram_loss_schedule is not None:
+                gram_loss_weight = self.gram_loss_schedule[iteration]
+            else:
+                gram_loss_weight = self.gram_loss_weight
+            
+            loss_dict["gram_loss_weight"] = gram_loss_weight
+            loss_accumulator += gram_loss * gram_loss_weight
+            loss_dict["gram_loss"] = gram_loss
+
+            if self.gram_compute_stats:
+                gram_loss_masked = self.gram_loss(
+                    gram_global["orig_student_patches"][masks],
+                    gram_global["orig_teacher_patches"][masks],
+                    img_level=False
+                )
+                loss_dict["stats_only/masked_gram_loss"] = gram_loss_masked
+                gram_loss_unmasked = self.gram_loss(
+                    gram_global["orig_student_patches"][~masks],
+                    gram_global["orig_teacher_patches"][~masks],
+                    img_level=False
+                )
+                loss_dict["stats_only/unmasked_gram_loss"] = gram_loss_unmasked
+
+        return loss_accumulator, loss_dict
