@@ -98,6 +98,14 @@ class ImageNet22k(ExtendedVisionDataset):
         13_289_782,
     }
     Labels = _Labels
+    def __getitem__(self, idx):
+        # bypassing i/o
+        image = np.random.randn(224, 224, 3)
+        target = np.random.randint((1,), 1000)
+        return {
+            "image": image,
+            "target": target
+        }
 
     def __init__(
         self,
@@ -109,6 +117,7 @@ class ImageNet22k(ExtendedVisionDataset):
         target_transform: Optional[Callable] = None,
         mmap_cache_size: int = _DEFAULT_MMAP_CACHE_SIZE,
     ) -> None:
+        return None
         super().__init__(root, transforms, transform, target_transform)
         self._extra_root = extra
 
@@ -238,6 +247,7 @@ class ImageNet22k(ExtendedVisionDataset):
             return super().__getitem__(index)
 
     def __len__(self) -> int:
+        return 2200
         return len(self._entries)
 
     def _dump_entries(self, *args, **kwargs) -> None:

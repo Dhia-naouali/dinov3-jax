@@ -52,6 +52,17 @@ class ADE20K(ExtendedVisionDataset):
     Split = Union[_Split]
     Labels = Union[Image.Image]
 
+    def __getitem__(self, idx):
+        # bypassing i/o
+        image = np.random.randn(224, 224, 3)
+        target = np.random.randint((1,), 1000)
+        return {
+            "image": image,
+            "target": target
+        }
+
+
+
     def __init__(
         self,
         split: "ADE20K.Split",
@@ -62,6 +73,7 @@ class ADE20K(ExtendedVisionDataset):
         image_decoder: Decoder = ImageDataDecoder,
         target_decoder: Decoder = DenseTargetDecoder,
     ) -> None:
+        return None
         super().__init__(
             root=root,
             transforms=transforms,
@@ -88,4 +100,5 @@ class ADE20K(ExtendedVisionDataset):
         return target_data
 
     def __len__(self) -> int:
+        return 1000 # bypassing i/o
         return len(self.image_paths)

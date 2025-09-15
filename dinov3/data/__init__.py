@@ -4,3 +4,4 @@
 
 from .masking import MaskingGenerator
 from .loaders import make_dataset
+from .collate import collate_data_and_cast
