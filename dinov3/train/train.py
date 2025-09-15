@@ -20,7 +20,7 @@ from dinov3.train.ssl_meta_arch import SSLMetaArch
 from dinov3.train.multidist_meta_arch import MultiDistillationMetaArch
 from dinov3.configs import setup_job, setup_config
 from dinov3.logging import setup_logging
-from dinov3.data import MaskingGenerator, make_dataset
+from dinov3.data import MaskingGenerator, make_dataset, collate_data_and_cast
 
 # from somewhere import distributed
 
@@ -397,14 +397,6 @@ def build_data_loader_from_cfg(
         local_batch_size = None
         dataloader_batch_size_per_gpu = config.train.batch_size_per_gpu
     
-    batch_size = dataloader_batch_size_per_gpu
-    num_workers = config.train.num_workers
-    dataset_path = config.train.dataset_path
-    dataset = make_dataset(
-        dataset_str=dataset_path,
-        transform=...,
-        target_transform=lambda _: (),
-    )
 
     collate_fn = partial(
         collate_data_and_cast,
@@ -414,12 +406,23 @@ def build_data_loader_from_cfg(
             "fp32": jnp.float32,
             "fp16": jnp.float16,
             "bf16": jnp.bfloat16
-        }[config.compute_precision.para_dtype],
+        }[config.compute_precision.param_dtype],
         n_tokens=n_tokens,
         mask_generator=mask_generator,
         random_circular_shift=config.ibot.mask_random_circular_shift,
         local_batch_size=local_batch_size
     )
+
+    batch_size = dataloader_batch_size_per_gpu
+    num_workers = config.train.num_workers
+    dataset_path = config.train.dataset_path
+    dataset = make_dataset(
+        dataset_str=dataset_path,
+        transform=...,
+        target_transform=lambda _: (),
+    )
+
+
 
 
 
