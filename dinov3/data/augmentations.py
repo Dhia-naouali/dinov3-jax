@@ -3,9 +3,7 @@
 # Original repository: https://github.com/facebookresearch/dinov3
 
 
-"""
-this file was imported as is from the original repo since no changes are needed to adapt to flax/jax
-"""
+# this file was imported as is from the original repo since no changes are needed to adapt to flax/jax
 
 
 import logging
