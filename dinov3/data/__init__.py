@@ -3,7 +3,7 @@
 # Original repository: https://github.com/facebookresearch/dinov3
 
 from .masking import MaskingGenerator
-from .loaders import make_dataset
+from .loaders import make_dataset, make_data_loader, SamplerType
 from .collate import collate_data_and_cast
 from .augmentations import DataAugmentationDINO
 from .transforms import make_classification_eval_transform, make_classification_train_transform

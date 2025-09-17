@@ -16,6 +16,8 @@ from dinov3.layers.dino_head import DINOHead
 from dinov3.loss import DINOLoss, KoLeoLossDistributed, KoLeoLoss, iBOTPatchLoss, GramLoss
 from dinov3.train.cosine_lr_scheduler import linear_warmup_cosine_decay
 from dinov3.configs import get_default_config
+from dinov3.data import DataAugmentationDINO
+
 
 logger = logging.getLogger("dinov3")
 
@@ -534,3 +536,21 @@ class SSLMetaArch(nn.Module):
                 loss_dict["stats_only/unmasked_gram_loss"] = gram_loss_unmasked
 
         return loss_accumulator, loss_dict
+
+
+
+    def build_data_augmentation_dino(self, cfg):
+        return DataAugmentationDINO(
+            cfg.crops.global_crops_scale,
+            cfg.crops.local_crops_scale,
+            cfg.crops.local_crops_number,
+            global_crops_size=cfg.crops.global_crops_size,
+            local_crops_size=cfg.crops.local_crops_size,
+            gram_teacher_crops_size=cfg.crops.gram_teacher_crops_size,
+            gram_teacher_no_distortions=cfg.crops.gram_teacher_no_distortions,
+            local_crops_subset_of_global_crops=cfg.crops.localcrops_subset_of_globalcrops,
+            share_color_jitter=cfg.crops.share_color_jitter,
+            horizontal_flips=cfg.crops.horizontal_flips,
+            mean=cfg.crops.rgb_mean,
+            std=cfg.crops.rgb_std,
+        )

@@ -10,6 +10,7 @@ import logging
 import argparse
 from pathlib import Path
 from functools import partial
+import torch
 
 import jax
 import optax
@@ -20,7 +21,7 @@ from dinov3.train.ssl_meta_arch import SSLMetaArch
 from dinov3.train.multidist_meta_arch import MultiDistillationMetaArch
 from dinov3.configs import setup_job, setup_config
 from dinov3.logging import setup_logging
-from dinov3.data import MaskingGenerator, make_dataset, collate_data_and_cast
+from dinov3.data import MaskingGenerator, make_dataset, make_data_loader, collate_data_and_cast, SamplerType
 
 # from somewhere import distributed
 
@@ -268,11 +269,9 @@ def main(argv=None):
 
 
 
-def build_optimizer(config, model_params):
-    return optax.adamw(model_params)
-
 
 def do_train(config, model_n_params, resume=False):
+
     model, init_params = model_n_params
     # no process subgroups
     ckpt_dir = Path(config.train.output_dir, "ckpt").expanduser()
@@ -290,6 +289,7 @@ def do_train(config, model_n_params, resume=False):
         model=model,
         start_iter=start_iter,
     )
+
     import IPython; IPython.embed()
     
     
@@ -325,15 +325,17 @@ def do_train(config, model_n_params, resume=False):
 
 def build_multi_resolution_data_loader_from_cfg(config, model, start_iter, seed=65537):
     global_crops_sizes = (
-        [config.crops.local_crops_size] 
+        [config.crops.global_crops_size] 
         if isinstance(config.crops.global_crops_size, int) 
-        else config.crops.blobal_crops_size
+        else config.crops.global_crops_size
     )
     local_crops_sizes = (
-        [config.crops.gram_teacher_crops_size]
+        [config.crops.local_crops_size]
         if isinstance(config.crops.local_crops_size, int)
         else config.crops.local_crops_size
     )
+
+
     gram_teacher_crops_sizes = (
         [config.crops.gram_teacher_crops_size]
         if config.crops.gram_teacher_crops_size is None or isinstance(config.crops.gram_teacher_crops_size, int)
@@ -392,12 +394,13 @@ def build_data_loader_from_cfg(
     if config.multidistillation.enabled:
         assert config.multidistillation.global_batch_size % 4 == 4, "to fix"
         # ...
-        # dataloader_batch_size_per_gpu = ...
+        # dataloader_batch_size_per_host = ...
     else:
         local_batch_size = None
-        dataloader_batch_size_per_gpu = config.train.batch_size_per_gpu
-    
+        dataloader_batch_size_per_host = config.train.batch_size_per_gpu * jax.local_device_count()
 
+
+    # to double check
     collate_fn = partial(
         collate_data_and_cast,
         mask_ratio_tuple=config.ibot.mask_ratio_min_max,
@@ -413,18 +416,40 @@ def build_data_loader_from_cfg(
         local_batch_size=local_batch_size
     )
 
-    batch_size = dataloader_batch_size_per_gpu
-    num_workers = config.train.num_workers
+
+    batch_size = dataloader_batch_size_per_host
+    num_workers = 0 # config.train.num_workers
     dataset_path = config.train.dataset_path
+
+
     dataset = make_dataset(
         dataset_str=dataset_path,
-        transform=...,
+        transform=model.build_data_augmentation_dino(config),
         target_transform=lambda _: (),
     )
 
 
 
 
+    if isinstance(dataset, torch.utils.data.IterableDataset):
+        sampler_type = SamplerType.INFINITE
+    else:
+        sampler_type = SamplerType.SHARDED_INFINITE if config.train.cache_dataset else SamplerType.INFINITE
+    sampler_type = SamplerType.EPOCH
+
+
+    data_loader = make_data_loader(
+        dataset=dataset,
+        batch_size=batch_size,
+        num_workers=num_workers,
+        shuffle=True,
+        seed=config.train.seed + start_iter + 1,
+        sampler_type=sampler_type,
+        sampler_advance=start_iter * dataloader_batch_size_per_host,
+        drop_last=True,
+        collate_fn=collate_fn,
+    )
+    return data_loader
 
     
 
