@@ -42,6 +42,7 @@ class ExtendedVisionDataset(VisionDataset):
         if self.transforms is not None:
             image, target = self.transforms(image, target)
 
+        return image, target
         return {
             "image": image.numpy().transpose(1, 2, 0), # HWC 
             "target": target.numpy()

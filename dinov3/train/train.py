@@ -290,8 +290,8 @@ def do_train(config, model_n_params, resume=False):
         start_iter=start_iter,
     )
 
+    next(iter(data_loader))
     import IPython; IPython.embed()
-    
     
     optimizer = build_optimizer(config, ...)
     optimizer_state = optimizer.init(init_params)
@@ -405,10 +405,10 @@ def build_data_loader_from_cfg(
         collate_data_and_cast,
         mask_ratio_tuple=config.ibot.mask_ratio_min_max,
         mask_probability=config.ibot.mask_sample_probability,
-        dtype={
-            "fp32": jnp.float32,
-            "fp16": jnp.float16,
-            "bf16": jnp.bfloat16
+        dtype={ # using torch dtypes for data loading, converting to jnp.ndarray later
+            "fp32": torch.float32,
+            "fp16": torch.float16,
+            "bf16": torch.bfloat16
         }[config.compute_precision.param_dtype],
         n_tokens=n_tokens,
         mask_generator=mask_generator,
@@ -427,7 +427,7 @@ def build_data_loader_from_cfg(
         transform=model.build_data_augmentation_dino(config),
         target_transform=lambda _: (),
     )
-
+    
 
 
 

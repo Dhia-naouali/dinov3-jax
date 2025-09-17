@@ -65,7 +65,8 @@ class MaskingGenerator:
                 
                 if delta > 0:
                     break
-            return delta
+
+        return delta
         
     def __call__(self, num_masking_patches=0):
         mask = np.zeros(shape=self.get_shape(), dtype=bool)
@@ -80,7 +81,7 @@ class MaskingGenerator:
             else:
                 mask_count += delta
             
-        return self.complete_mask_randomly(self, mask, num_masking_patches)
+        return self.complete_mask_randomly(mask, num_masking_patches)
 
 
     def complete_mask_randomly(self, mask, num_masking_patches):

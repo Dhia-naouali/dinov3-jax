@@ -18,7 +18,6 @@ def collate_data_and_cast(
     random_circular_shift=False,
     local_batch_size=None,
 ):
-    import IPython; IPython.embed()
     n_global_crops = len(samples_list[0][0]["global_crops"])
     n_local_crops = len(samples_list[0][0]["local_crops"])
 

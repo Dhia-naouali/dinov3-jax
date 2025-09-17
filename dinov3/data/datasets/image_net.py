@@ -62,16 +62,17 @@ class ImageNet(ExtendedVisionDataset):
     Split = Union[_Split]
 
 
-    def __getitem__(self, idx):
-        """
-        temporary loading for debugging without maxing my laptop / download images atp
-        """
-        image = np.random.randn(224, 224, 3)
-        target = np.random.randint((1,), 1000)
-        return {
-            "image": image,
-            "target": target
-        }
+    # def __getitem__(self, idx):
+    #     """
+    #     temporary loading for debugging without maxing my laptop / download images atp
+    #     """
+
+        # image = np.random.randn(224, 224, 3)
+        # target = np.random.randint((1,), 1000)
+        # return {
+        #     "image": image,
+        #     "target": target
+        # }
 
 
 
@@ -90,14 +91,14 @@ class ImageNet(ExtendedVisionDataset):
     
 
         # part of the thingy
-        # super().__init__(
-        #     root=root,
-        #     transforms=transforms,
-        #     transform=transform,
-        #     target_transform=target_transform,
-        #     image_decoder=ImageDataDecoder,
-        #     target_decoder=TargetDecoder,
-        # )
+        super().__init__(
+            root=root,
+            transforms=transforms,
+            transform=transform,
+            target_transform=target_transform,
+            image_decoder=ImageDataDecoder,
+            target_decoder=TargetDecoder,
+        )
         self._extra_root = extra
         self._split = split
 
@@ -164,6 +165,12 @@ class ImageNet(ExtendedVisionDataset):
         return str(class_names[class_index])
 
     def get_image_data(self, index: int) -> bytes:
+
+
+
+        return 
+        
+
         entries = self._get_entries()
         actual_index = entries[index]["actual_index"]
 
@@ -176,6 +183,10 @@ class ImageNet(ExtendedVisionDataset):
         return image_data
 
     def get_target(self, index: int) -> Optional[Target]:
+
+        return 
+        
+
         entries = self._get_entries()
         class_index = entries[index]["class_index"]
         return None if self.split == _Split.TEST else int(class_index)
