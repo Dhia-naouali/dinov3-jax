@@ -15,6 +15,7 @@ from dinov3.utils import count_parameters
 from dinov3.layers.dino_head import DINOHead
 from dinov3.loss import DINOLoss, KoLeoLossDistributed, KoLeoLoss, iBOTPatchLoss, GramLoss
 from dinov3.train.cosine_lr_scheduler import linear_warmup_cosine_decay
+from dinov3.train.param_groups import get_params_groups_with_decay_fsdp
 from dinov3.configs import get_default_config
 from dinov3.data import DataAugmentationDINO
 
@@ -36,9 +37,9 @@ class SSLMetaArch(nn.Module):
         gram_backbone, _ = build_model_from_cfg(self.config, only_teacher=True)
         # logger.info(f"Number of parameters: {count_parameters(student_backbone)}")
         
-        self.student = {}
-        self.teacher = {}
-        self.gram_model = {}
+        # self.student = {}
+        # self.teacher = {}
+        # self.gram_model = {}
 
         self.student_backbone = student_backbone
         self.teacher_backbone = teacher_backbone
@@ -101,7 +102,7 @@ class SSLMetaArch(nn.Module):
         self.ibot_patch_loss = iBOTPatchLoss(self.config.ibot.head_n_prototypes)
         
         
-        self.model_ema = self.teacher # may be overwritten for distillation
+        # self.model_ema = self.teacher # may be overwritten for distillation
         logger.info(f"Student and Teacher are built: they are both {self.config.student.arch} network")
 
         if self.config.distillation.enabled:
@@ -554,3 +555,28 @@ class SSLMetaArch(nn.Module):
             mean=cfg.crops.rgb_mean,
             std=cfg.crops.rgb_std,
         )
+
+
+
+
+    def get_params_groups(self, params): # student : (backbone, dino_head, ibot_head)
+        import IPython; IPython.embed()
+        
+        all_params_groups = []
+        for name, m in params.items():
+            logger.info(f"Getting param groups for {name}")
+            all_params_groups += self.get_maybe_fused_params_for_submodel(m)
+        return all_params_groups
+
+
+    def get_maybe_fused_params_for_submodel(self, m):
+        params_groups = get_params_groups_with_decay_fsdp(
+            model=m,
+            lr_decay_rate=self.config.optim.layerwise_decay,
+            patch_embed_lr_mult=self.config.optim.patch_embed_lr_mult,
+            dino_head_wd_multiplier=self.config.optim.dino_head_wd_multiplier
+        )
+        if False and self.config.optim.multi_tensor_optim:
+            ...
+
+        return params_groups

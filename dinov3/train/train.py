@@ -269,7 +269,6 @@ def main(argv=None):
 
 
 
-
 def do_train(config, model_n_params, resume=False):
 
     model, init_params = model_n_params
@@ -291,9 +290,9 @@ def do_train(config, model_n_params, resume=False):
     )
 
     next(iter(data_loader))
-    import IPython; IPython.embed()
     
-    optimizer = build_optimizer(config, ...)
+    import IPython; IPython.embed()
+    optimizer = build_optimizer(config, model.get_params_groups(init_params["params"]))
     optimizer_state = optimizer.init(init_params)
     (
         lr_schedule,
