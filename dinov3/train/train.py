@@ -54,6 +54,7 @@ def get_args_parser():
 
 
 def build_optimizer(config, schedule):
+    # return None
     return optax.adamw(schedule, b1=config.optim.adamw_beta1, b2=config.optim.adamw_beta2)
 
 
@@ -69,11 +70,11 @@ def build_schedulers(config):
         total_iters=config.optim["epochs"] * OFFICIAL_EPOCCH_LENGTH,
         warmup_iters=config.optim["warmup_epochs"] * OFFICIAL_EPOCCH_LENGTH,
         start_warmup_value=0,
-        trunc_extra=config.optim["scedule_trunc_extra"],
+        trunc_extra=config.optim["schedule_trunc_extra"],
     )
     
     weight_decay = dict(
-        vase_value=config.optim["weight_decay"],
+        base_value=config.optim["weight_decay"],
         final_value=config.optim["weight_decay_end"],
         total_iters=config.optim["epochs"] * OFFICIAL_EPOCCH_LENGTH,
         trunc_extra=config.optim["schedule_trunc_extra"]
@@ -291,8 +292,8 @@ def do_train(config, model_n_params, resume=False):
 
     next(iter(data_loader))
     
-    import IPython; IPython.embed()
-    optimizer = build_optimizer(config, model.get_params_groups(init_params["params"]))
+    param_groups = model.get_params_groups(init_params["params"])
+    optimizer = build_optimizer(config, param_groups)
     optimizer_state = optimizer.init(init_params)
     (
         lr_schedule,
@@ -302,8 +303,9 @@ def do_train(config, model_n_params, resume=False):
         last_layer_lr_schedule
     ) = build_schedulers(config)
 
+    import IPython; IPython.embed()
     if config.multidistillation.enabled:
-        register_dont_save__hooks(
+        register_dont_save_hooks(
             model,
             dont_save=["teacher params"]
         )

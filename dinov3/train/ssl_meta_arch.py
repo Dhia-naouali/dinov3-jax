@@ -15,7 +15,7 @@ from dinov3.utils import count_parameters
 from dinov3.layers.dino_head import DINOHead
 from dinov3.loss import DINOLoss, KoLeoLossDistributed, KoLeoLoss, iBOTPatchLoss, GramLoss
 from dinov3.train.cosine_lr_scheduler import linear_warmup_cosine_decay
-from dinov3.train.param_groups import get_params_groups_with_decay_fsdp
+from dinov3.train.param_groups import get_params_groups_with_decay_fsdp, fuse_params_groups
 from dinov3.configs import get_default_config
 from dinov3.data import DataAugmentationDINO
 
@@ -560,8 +560,6 @@ class SSLMetaArch(nn.Module):
 
 
     def get_params_groups(self, params): # student : (backbone, dino_head, ibot_head)
-        import IPython; IPython.embed()
-        
         all_params_groups = []
         for name, m in params.items():
             logger.info(f"Getting param groups for {name}")
@@ -576,7 +574,15 @@ class SSLMetaArch(nn.Module):
             patch_embed_lr_mult=self.config.optim.patch_embed_lr_mult,
             dino_head_wd_multiplier=self.config.optim.dino_head_wd_multiplier
         )
-        if False and self.config.optim.multi_tensor_optim:
-            ...
+        if self.config.optim.multi_tensor_optim:
+            fused_params_groups = fuse_params_groups(params_groups)
+            logger.info("fusing param_ groups")
 
-        return params_groups
+            for g in fused_params_groups:
+                g["foreach"] = True
+                g["fused"] = True
+            return fused_params_groups
+        else:
+            return params_groups
+
+
