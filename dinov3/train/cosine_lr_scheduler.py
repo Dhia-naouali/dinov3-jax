@@ -38,7 +38,7 @@ class CosineScheduler:
         
         assert len(self.schedule) == self.total_iters
     
-    def __call__(self, itr):
+    def __getitem__(self, itr):
         if itr >= self.total_iters:
             return self.final_value
         return self.schedule[itr]

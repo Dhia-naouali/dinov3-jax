@@ -238,11 +238,15 @@ class DinoVisionTransformer(nn.Module):
     
     
     def forward_features(self, x, masks=None, deterministic=True):
-        if isinstance(x, jnp.ndarray):
-            return self.forward_features_list([x], [masks], deterministic=deterministic)[0] # a77a 2
-        else:
-            return self.forward_features_list(x, masks, deterministic=deterministic)
-        
+        try:
+            if isinstance(x, jnp.ndarray):
+                return self.forward_features_list([x], [masks], deterministic=deterministic)[0] # a77a 2
+            else:
+                return self.forward_features_list(x, masks, deterministic=deterministic)
+        except Exception as e:
+            print(e)
+            import IPython; IPython.embed()
+
     
     def _get_intermediate_layers_not_chunked(self, x, n=1, deterministic=True):
         x, (H, W) = self.prepare_tokens_with_masks(x)
@@ -310,10 +314,16 @@ class DinoVisionTransformer(nn.Module):
 def vit_small(patch_size=16, **kwargs):
     return DinoVisionTransformer(
         patch_size=patch_size,
-        embed_idm=384,
-        n_blocks=12,
-        num_heads=6,
-        ffn_ratio=4,
+        # embed_dim=384,
+        # n_blocks=12,
+        # num_heads=6,
+        # ffn_ratio=4,
+        embed_dim=384,
+        n_blocks=4,
+        num_heads=2,
+        ffn_ratio=2,
+
+
         **kwargs
     )
 

@@ -25,6 +25,16 @@ logger = logging.getLogger("dinov3")
 class SSLMetaArch(nn.Module):
     config: Any
 
+    dino_global_ignore_diagonal = None
+    dino_local_loss_schedule = None
+    dino_loss_weight = None
+    dino_koleo_loss_weight = None
+    ibot_koleo_loss_weight = None
+    gram_img_level = None
+    gram_compute_stats = None
+    gram_loss_weight = None
+    dino_loss = DINOLoss
+
     def setup(self):
         assert self.config.crops.local_crops_number > 0
         assert self.config.ibot.separate_head is True
@@ -65,7 +75,7 @@ class SSLMetaArch(nn.Module):
 
         self.student_dino_head = dino_head_class()
         self.teacher_dino_head = dino_head_class()
-        self.dino_loss = DINOLoss(self.dino_out_dim)
+        self.dino_loss = self.dino_loss(self.dino_out_dim)
 
         logger.info("OPTIONS -- KOLEO")
         logger.info(f"OPTIONS -- KOLEO -- loss_weight: {self.config.dino.koleo_loss_weight}")
@@ -473,6 +483,7 @@ class SSLMetaArch(nn.Module):
             teacher_probs=teacher_global["cls_centered"],
         )
         loss_dict["dino_local_crops_loss"] = dino_local_crops_loss
+
 
         if self.config.dino.reweight_dino_local_loss:
             local_weitht = self.dino_local_loss_schedule[iteration]

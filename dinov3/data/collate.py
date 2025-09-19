@@ -5,8 +5,10 @@
 
 import random
 
+import jax
 import torch
-
+import numpy as np
+import jax.numpy as jnp
 
 def collate_data_and_cast(
     samples_list,
@@ -75,6 +77,16 @@ def collate_data_and_cast(
     }
     if collated_gram_teacher_crops is not None:
         out["collated_gram_teacher_crops"] = collated_gram_teacher_crops.to(dtype)
+
+    # import IPython; IPython.embed()
+    for k, v in out.items():
+        if type(v) == torch.Tensor:
+            out[k] = jax.dlpack.from_dlpack(
+                torch.utils.dlpack.to_dlpack(
+                    v if len(v.shape) < 3 else torch.movedim(v, -3, -1).contiguous()
+                )
+            )
+
     return out
 
 

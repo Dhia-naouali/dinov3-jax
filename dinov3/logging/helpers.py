@@ -31,6 +31,7 @@ class SmoothedValue:
         self.count += num
         self.total += value
     
+    # per host
     def synchronize_between_processes(self):
         if not distributed.is_enabled():
             return

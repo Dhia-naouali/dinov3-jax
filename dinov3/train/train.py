@@ -2,6 +2,7 @@
 # Ported from the original PyTorch implementation by Meta AI
 # Original repository: https://github.com/facebookresearch/dinov3
 
+import gc
 import os
 import sys
 import copy
@@ -20,7 +21,7 @@ from dinov3.train.cosine_lr_scheduler import CosineScheduler, linear_warmup_cosi
 from dinov3.train.ssl_meta_arch import SSLMetaArch
 from dinov3.train.multidist_meta_arch import MultiDistillationMetaArch
 from dinov3.configs import setup_job, setup_config
-from dinov3.logging import setup_logging
+from dinov3.logging import setup_logging, MetricLogger
 from dinov3.data import MaskingGenerator, make_dataset, make_data_loader, collate_data_and_cast, SamplerType
 
 # from somewhere import distributed
@@ -271,29 +272,14 @@ def main(argv=None):
 
 
 def do_train(config, model_n_params, resume=False):
-
     model, init_params = model_n_params
     # no process subgroups
     ckpt_dir = Path(config.train.output_dir, "ckpt").expanduser()
-
     ckpt_dir.mkdir(parents=True, exist_ok=True)
-    OFFICIAL_EPOCH_LENGTH = config.train.OFFICIAL_EPOCH_LENGTH
-    max_iter = config.optim.epochs * OFFICIAL_EPOCH_LENGTH
-    
-    # global_batch_size = config.train.batch_size_per_gpu * distributed.get_world_size()
-    global_batch_size = config.train.batch_size_per_gpu * jax.device_count()
 
-    start_iter = 0    
-    data_loader = build_multi_resolution_data_loader_from_cfg(
-        config=config,
-        model=model,
-        start_iter=start_iter,
-    )
-
-    next(iter(data_loader))
-    
     param_groups = model.get_params_groups(init_params["params"])
     optimizer = build_optimizer(config, param_groups)
+
     optimizer_state = optimizer.init(init_params)
     (
         lr_schedule,
@@ -303,25 +289,121 @@ def do_train(config, model_n_params, resume=False):
         last_layer_lr_schedule
     ) = build_schedulers(config)
 
-    import IPython; IPython.embed()
+
     if config.multidistillation.enabled:
         register_dont_save_hooks(
             model,
             dont_save=["teacher params"]
         )
-    
+
     start_iter = 0
-    if ersume and (last_checkpoint_dir := find_latest_checkpoint(ckpt_dir)):
-        logger.inof(f"checkpoint found {last_checkpoint_dir}")
-        start_iter = (
-            load_checkpoint(
-                last_checkpoint_dir,
-                model=model,
-                optimizer=optimizer,
-                strict_loading=False,
-                # no process groups
-            )
-        ) + 1
+    if resume: # and (last_checkpoint_dir := find_latest_checkpoint(ckpt_dir)):
+        ...
+        # raise Exception("resume zeft")
+        # logger.inof(f"checkpoint found {last_checkpoint_dir}")
+        # start_iter = (
+        #     load_checkpoint(
+        #         last_checkpoint_dir,
+        #         model=model,
+        #         optimizer=optimizer,
+        #         strict_loading=False,
+        #         # no process groups
+        #     )
+        # ) + 1
+
+    OFFICIAL_EPOCH_LENGTH = config.train.OFFICIAL_EPOCH_LENGTH
+    max_iter = config.optim.epochs * OFFICIAL_EPOCH_LENGTH
+
+    # if config.multidistillation.enabled:
+    #     global_batch_size = config.multidistillation.global_batch_size
+    # else:
+    #     # * GPUs per host * num_hosts
+    #     global_batch_size = config.train.batch_size_per_gpu * distributed.get_world_size()
+    
+    global_batch_size = config.train.batch_size_per_gpu * jax.device_count()
+
+    data_loader = build_multi_resolution_data_loader_from_cfg(
+        config=config,
+        model=model,
+        start_iter=start_iter,
+    )
+
+
+    logger.info(f"Starting training from iteration {start_iter}")
+    metrics_file = os.path.join(config.train.output_dir, "training_metrics.json")
+    metric_logger = MetricLogger(delimiter="  ", output_file=metrics_file)
+    # gc.disable()
+    gc.collect()
+
+    next(iter(data_loader))
+
+    # student = model.student
+    iteration = start_iter
+    num_gram_updates = 0
+    if (
+        config.gram.use_loss
+        and model.has_gram_teacher
+        and config.gram.rep_update
+        and start_iter > 0
+        and start_iter >= config.gram.it_first_update
+    ):
+        num_gram_updates = math.ceil((start_iter + 1 - config.gram.it_first_update)  / config.gram.update_frequency)
+        logger.info(f"Gram was updated {num_gram_updates} times before iteration {start_iter}")
+
+
+    consecutive_nan_count = 0
+
+    for data in metric_logger.log_every(
+        data_loader, print_freq=10,
+        header="Training",
+        n_iterations=max_iter,
+        start_iteration=start_iter
+    ):
+        it = iteration
+        data["global_batch_size"] = global_batch_size
+        if iteration > max_iter:
+            return
+        
+        if (iteration + 1) % 150 == 0:
+            logger.info("Gargage collection")
+            gc.collect()
+        
+        if config.gram.use_loss and model.gram_it_load_ema_teacher == it:
+            logger.info(f"Loading EMA teacher info Gram teacher before iteration {it}")
+            model.gram_load_ema_teacher() # not implemented yet
+        
+        lr = lr_schedule[it]
+        wd = wd_schedule[it]
+        mom = momentum_schedule[it]
+        teacher_temp = teacher_temp_schedule[it]
+        last_layer_lr = last_layer_lr_schedule[it]
+        res = model.apply(init_params, data, teacher_temp=teacher_temp, iteration=it, rngs={
+            "dropout": jax.random.PRNGKey(1), "drop_path": jax.random.PRNGKey(2)
+        })
+        import IPython; IPython.embed()
+
+        # apply_optim_scheduler(optimizer, lr, wd, last_layer_lr)
+        # zero grad
+
+        # total_loss, metrics_dict = model.forward_backward(data, teacher_temp, iteration=it)
+
+        if config.optim.clip_grad:
+            ...
+
+
+    
+    
+    OFFICIAL_EPOCH_LENGTH = config.train.OFFICIAL_EPOCH_LENGTH
+    max_iter = config.optim.epoch * OFFICIAL_EPOCH_LENGTH
+    if config.multidistillation.enabled:
+        raise
+
+
+
+
+def apply_optim_scheduler(optimizer, lr, wd, last_layer_lr):
+    ...
+
 
 
 def build_multi_resolution_data_loader_from_cfg(config, model, start_iter, seed=65537):
