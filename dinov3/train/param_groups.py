@@ -1,10 +1,38 @@
 import logging
 from collections import defaultdict
+from typing import Union
 
-from flax.traverse_util import flatten_dict
+import jax
+from flax.traverse_util import flatten_dict, unflatten_dict
 
 logger = logging.getLogger("dinov3")
 
+
+class ParamDict:
+    def __init__(
+            self, 
+            name: str,
+            is_last_layer: bool,
+            lr_multiplier: Union[int, float],
+            wd_multiplier: Union[int, float],
+        ):
+        self.name = name
+        self.is_last_layer = is_last_layer
+        self.lr_multiplier = lr_multiplier
+        self.wd_multiplier = wd_multiplier
+
+    def __repr__(self):
+        return "FIXED[" + repr(dict(vars(self))) + "]"
+    
+    def __str__(self):
+        return "FIXED[" + str(dict(vars(self))) + "]"
+
+# to be used later to construct the params mask for the multi-optimizers thingy
+jax.tree_util.register_pytree_node(
+    ParamDict,
+    lambda x: (tuple(x.dict.values()), tuple(x.dict.keys())),
+    lambda values, keys : ParamDict(dict(zip(keys, values))),
+)
 
 
 def get_params_groups_with_decay_fsdp(
@@ -18,42 +46,39 @@ def get_params_groups_with_decay_fsdp(
     n_blocks = len([k for k in model.keys() if k.startswith("block")])
     is_backbone = "blocks_0" in model.keys()
 
-    all_param_groups = []
+    all_param_groups = {}
     for name, param in flatten_dict(model, sep=".").items():
-        # remove fsdp thingy from name
-        # no need to fileter, only params make it here
         decay_rate = get_vit_lr_decay_rate(
             param,
             lr_decay_rate,
             num_layers=n_blocks,
-            force_is_backbone=n_blocks > 0,
+            force_is_backbone=n_blocks>0,
             chunked_blocks=chunked_blocks
         )
+
         d = {
             "name": name,
-            "params": param,
             "is_last_layer": False,
             "lr_multiplier": decay_rate,
-            "wd_multiplier": 1.
+            "wd_multiplier": 1.,
         }
 
         if "dino_head" in name:
             d["wd_multiplier"] = dino_head_wd_multiplier
-        
+
         if "last_layer" in name:
             d["is_last_layer"] = True
-        
+
         if name.endswith("bias") or "norm" in name or "gamma" in name or "fourier_w" in name:
-            d["wd_multiplier"] = 0.
-        
-        if name == "patch_embed" in name:
+            d["wd_multiplier"] = 0
+
+        if "patch_embed" in name:
             d["lr_multiplier"] *= patch_embed_lr_mult
         
-
-        all_param_groups.append(d)
+        all_param_groups[name] = ParamDict(d)
         logger.info(f"{name}: lr_multiplier: {d['lr_multiplier']}, wd_multiplier: {d['wd_multiplier']}")
 
-    return all_param_groups
+    return unflatten_dict(all_param_groups, sep=".")
 
 
 
@@ -108,6 +133,7 @@ def fuse_params_groups(all_params_groups, keys=("lr_multiplier", "wd_multiplier"
         # if not id_ in fused_params_groups: ?
         for k in keys:
             fused_params_groups[id_][k] = d[k]
+        fused_params_groups[id_]["group_name"] = d["name"]
         fused_params_groups[id_]["params"].append(d["params"])
 
     return fused_params_groups.values()
