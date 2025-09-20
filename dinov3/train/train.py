@@ -54,8 +54,24 @@ def get_args_parser():
     return parser
 
 
-def build_optimizer(config, params_groups):
-    for params_group in params_groups:
+def build_optimizer(config, schedule):
+    """
+    current:
+        -group1:
+            -params
+            -schedule1
+            -...
+
+    goal:
+        dict: 
+            params: pytree
+            mask1: [...schedules...]
+            ...
+    """
+    # return None
+    return optax.adamw(schedule, b1=config.optim.adamw_beta1, b2=config.optim.adamw_beta2)
+    return None
+    # for params_group in params_groups:
         # extract schedule
         # init optimizer
     
@@ -65,7 +81,9 @@ def build_optimizer(config, params_groups):
 
 
     # return None
-    return optax.adamw(schedule, b1=config.optim.adamw_beta1, b2=config.optim.adamw_beta2)
+    # return optax.adamw(schedule, b1=config.optim.adamw_beta1, b2=config.optim.adamw_beta2)
+
+
 
 
 def build_schedulers(config):
@@ -398,6 +416,7 @@ def do_train(config, model_n_params, resume=False):
 
         # reduce loss & metric logs
         total_loss_all_ranks = ...
+        import IPython; IPython.embed()
 
 
         if total_loss_all_ranks.isnan().any():
@@ -409,7 +428,6 @@ def do_train(config, model_n_params, resume=False):
         optimizer.apply(...)
         model.update_ema(mom)
 
-        import IPython; IPython.embed()
 
         # apply_optim_scheduler(optimizer, lr, wd, last_layer_lr)
         # zero grad

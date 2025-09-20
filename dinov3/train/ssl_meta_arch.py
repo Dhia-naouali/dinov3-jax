@@ -8,8 +8,10 @@ from functools import partial
 from omegaconf import OmegaConf
 from typing import Any
 
+import jax
 import jax.numpy as jnp
 import flax.linen as nn
+from flax.traverse_util import flatten_dict
 from dinov3.models import build_model_from_cfg
 from dinov3.utils import count_parameters
 from dinov3.layers.dino_head import DINOHead
@@ -408,7 +410,7 @@ class SSLMetaArch(nn.Module):
         )
 
         masked_patches_pre_head = g_patch.reshape(-1, g_patch.shape[-1])[mask_indices_list, ...]
-        global_masked_patch_after_head = self.student_dino_head(masked_patches_pre_head)
+        global_masked_patch_after_head = self.student_ibot_head(masked_patches_pre_head)
 
         buffer = [g_cls, l_cls]
         buffer_split = g_cls.shape[0]
@@ -552,33 +554,45 @@ class SSLMetaArch(nn.Module):
             std=cfg.crops.rgb_std,
         )
 
-
-
-
     def get_params_groups(self, params): # student : (backbone, dino_head, ibot_head)
-        all_params_groups = []
+        params = {k.replace("student_", ""): v for k, v in params.items() if "student_" in k}
+        # params = flatten_dict(params, sep=".")
+
+        all_params_groups = {}
+
         for name, m in params.items():
             logger.info(f"Getting param groups for {name}")
-            all_params_groups += self.get_maybe_fused_params_for_submodel(m)
+            all_params_groups[name] = self.get_maybe_fused_params_for_submodel(m, root_name=name) # backbone, dino_head, ibot_head each (maybe) with --groups--: to fuse one layer higher
+
+
+        import IPython; IPython.embed()
         return all_params_groups
 
 
-    def get_maybe_fused_params_for_submodel(self, m):
+    def get_maybe_fused_params_for_submodel(self, m, root_name=""):
         params_groups = get_params_groups_with_decay_fsdp(
             model=m,
             lr_decay_rate=self.config.optim.layerwise_decay,
             patch_embed_lr_mult=self.config.optim.patch_embed_lr_mult,
-            dino_head_wd_multiplier=self.config.optim.dino_head_wd_multiplier
+            dino_head_wd_multiplier=self.config.optim.dino_head_wd_multiplier,
+            root_name=root_name
         )
         if self.config.optim.multi_tensor_optim:
-            fused_params_groups = fuse_params_groups(params_groups)
+            params_groups = jax.tree_util.tree_map(
+                set_paramdict_attrs,
+                params_groups
+            )
+            fused_params_groups = fuse_params_groups(params_groups, 
+            root_name=root_name)
+            import IPython; IPython.embed()
+            
             logger.info("fusing param_ groups")
 
-            for g in fused_params_groups:
-                g["foreach"] = True
-                g["fused"] = True
             return fused_params_groups
         else:
             return params_groups
 
 
+def set_paramdict_attrs(pd):
+    pd.foreach=True; pd.fused=True
+    return pd
