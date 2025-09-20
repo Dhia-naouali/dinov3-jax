@@ -326,21 +326,8 @@ class SSLMetaArch(nn.Module):
                 student_global_crops_size=global_crops.shape[-1]
             )
         else:
-            gram_global = {}
+            gram_global = {}        
 
-        # temp forward only implementation
-        return dict(
-            teacher_global=teacher_global,
-            student_global=student_global,
-            student_local=student_local,
-            gram_global=gram_global,
-            masks=masks,
-            mask_indices_list=mask_indices_list,
-            masks_weight=masks_weight,
-            iteration=iteration,
-        )
-        
-        
 
         loss_accumulator, loss_dict = self.compute_losses(
             teacher_global=teacher_global,
@@ -353,8 +340,6 @@ class SSLMetaArch(nn.Module):
             iteration=iteration,
         )
         
-        import IPython; IPython.embed()
-        # back prop loss
         return loss_accumulator, metrics_dict | loss_dict
     
 
@@ -517,7 +502,7 @@ class SSLMetaArch(nn.Module):
         loss_dict["ibot_loss"] = ibot_patch_loss
         loss_accumulator += self.ibot_loss_weight * ibot_patch_loss
 
-        if self.gram_useloss:
+        if self.gram_use_loss:
             gram_loss = self.gram_loss(
                 gram_global["student_patches"],
                 gram_global["teacher_patches"],

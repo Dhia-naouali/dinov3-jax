@@ -54,7 +54,16 @@ def get_args_parser():
     return parser
 
 
-def build_optimizer(config, schedule):
+def build_optimizer(config, params_groups):
+    for params_group in params_groups:
+        # extract schedule
+        # init optimizer
+    
+    # return optimizers
+
+
+
+
     # return None
     return optax.adamw(schedule, b1=config.optim.adamw_beta1, b2=config.optim.adamw_beta2)
 
@@ -377,9 +386,29 @@ def do_train(config, model_n_params, resume=False):
         mom = momentum_schedule[it]
         teacher_temp = teacher_temp_schedule[it]
         last_layer_lr = last_layer_lr_schedule[it]
-        res = model.apply(init_params, data, teacher_temp=teacher_temp, iteration=it, rngs={
+        train_loss, metrics_dict = model.apply(init_params, data, teacher_temp=teacher_temp, iteration=it, rngs={
             "dropout": jax.random.PRNGKey(1), "drop_path": jax.random.PRNGKey(2)
         })
+
+
+        if config.optim.clip_grad:
+            print("to clip grads")
+
+
+
+        # reduce loss & metric logs
+        total_loss_all_ranks = ...
+
+
+        if total_loss_all_ranks.isnan().any():
+            ...
+        else:
+            consecutive_nan_count = 0
+
+
+        optimizer.apply(...)
+        model.update_ema(mom)
+
         import IPython; IPython.embed()
 
         # apply_optim_scheduler(optimizer, lr, wd, last_layer_lr)

@@ -58,8 +58,8 @@ class iBOTPatchLoss(nn.Module):
             )
         if n_masked_patches is not None:
             loss = loss[:n_masked_patches]
-        import IPython; IPython.embed()
-        loss = loss * masks_weight
+        # import IPython; IPython.embed()
+        # loss = loss * masks_weight
         return -loss.sum() / student_masks_flat.shape[0]
 
     def apply_center_update(self, teacher_output):
