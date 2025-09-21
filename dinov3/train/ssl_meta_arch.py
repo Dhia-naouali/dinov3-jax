@@ -564,8 +564,15 @@ class SSLMetaArch(nn.Module):
             logger.info(f"Getting param groups for {name}")
             all_params_groups[name] = self.get_maybe_fused_params_for_submodel(m, root_name=name) # backbone, dino_head, ibot_head each (maybe) with --groups--: to fuse one layer higher
 
+        temp_groups = {}
+        for name, m in all_params_groups.items():
+            if "--groups--" in m.keys():
+                groups = m.pop("--groups--")
+                temp_groups = {**temp_groups, **groups}
+        
+        if temp_groups:
+            all_params_groups["--groups--"] = temp_groups
 
-        import IPython; IPython.embed()
         return all_params_groups
 
 
@@ -584,7 +591,6 @@ class SSLMetaArch(nn.Module):
             )
             fused_params_groups = fuse_params_groups(params_groups, 
             root_name=root_name)
-            import IPython; IPython.embed()
             
             logger.info("fusing param_ groups")
 

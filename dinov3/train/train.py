@@ -11,6 +11,7 @@ import logging
 import argparse
 from pathlib import Path
 from functools import partial
+from typing import Iterable
 import torch
 
 import jax
@@ -54,7 +55,40 @@ def get_args_parser():
     return parser
 
 
-def build_optimizer(config, schedule):
+def build_optimizer(
+        config, 
+        param_groups, 
+        lr_schedule: Iterable=None, 
+        wd_schedule: Iterable=None, 
+        last_layer_lr_schedule:Iterable=None
+    ):
+    if "--groups--" not in param_groups.keys():return None
+
+    # separating the groups configs and param masks + renaming masks to match student params pytree
+    groups = param_groups.pop("--groups--")
+    for k in list(param_groups.keys()):
+        print(k)
+        if "student_" not in k:
+            param_groups[f"student_{k}"] = param_groups.pop(k)
+        print(param_groups.keys())
+
+
+    optimizers = optax.multi_transform(
+        {
+            k: optax.adamw(
+                learning_rate=lambda it: v.lr_multiplier * (last_layer_lr_schedule if v.is_last_layer else lr_schedule)[it],
+                weight_decay=lambda it: v.wd_multiplier * wd_schedule[it],
+                b1=config.optim.adamw_beta1,
+                b2=config.optim.adamw_beta2
+            ) for k, v in groups.items()
+        },
+        param_groups
+    )
+
+    return optimizers
+
+
+
     """
     current:
         -group1:
@@ -305,9 +339,6 @@ def do_train(config, model_n_params, resume=False):
     ckpt_dir.mkdir(parents=True, exist_ok=True)
 
     param_groups = model.get_params_groups(init_params["params"])
-    optimizer = build_optimizer(config, param_groups)
-
-    optimizer_state = optimizer.init(init_params)
     (
         lr_schedule,
         wd_schedule,
@@ -315,6 +346,21 @@ def do_train(config, model_n_params, resume=False):
         teacher_temp_schedule,
         last_layer_lr_schedule
     ) = build_schedulers(config)
+    optimizer = build_optimizer(
+        config, 
+        param_groups, 
+        lr_schedule=lr_schedule, 
+        wd_schedule=wd_schedule, 
+        last_layer_lr_schedule=last_layer_lr_schedule
+    )
+    import IPython; IPython.embed()
+    student_params = {
+        k: v for k, v in init_params["params"].items()
+        if "student_" in k
+    }
+
+    optimizer_state = optimizer.init(student_params)
+
 
 
     if config.multidistillation.enabled:
@@ -416,7 +462,6 @@ def do_train(config, model_n_params, resume=False):
 
         # reduce loss & metric logs
         total_loss_all_ranks = ...
-        import IPython; IPython.embed()
 
 
         if total_loss_all_ranks.isnan().any():

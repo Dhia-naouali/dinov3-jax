@@ -123,7 +123,6 @@ def get_vit_lr_decay_rate(
             layer_id = 0
         elif "blocks" in name and "residual" not in name:
             layer_id = int(name.split("blocks_")[1].split(".")[0]) + 1
-    print(name, layer_id)
     return lr_decay_rate ** (num_layers + 1 - layer_id)
 
 
