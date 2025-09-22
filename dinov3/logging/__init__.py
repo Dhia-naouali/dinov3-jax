@@ -93,7 +93,20 @@ def _configure_logger(
     datefmt = "%Y%m%d %H:%M:%S"
     plain_formatter = logging.Formatter(fmt=fmt, datefmt=datefmt)
 
+    #
+    #
+    #
+    #
+    #
+    #
     # torch_env = TorchDistributedEnvironment()
+    #
+    #
+    #
+    #
+    #
+    #
+    #
 
     # rank 0 always logs to stdout, for other ranks it depends on log_to_stdout_only_in_main_process
     should_log_to_stdout = is_main_process or not log_to_stdout_only_in_main_process

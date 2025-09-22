@@ -14,7 +14,7 @@ from typing import Any, List, Optional, Sequence, Tuple
 from omegaconf import DictConfig, OmegaConf
 
 import dinov3.distributed as distributed
-# from dinov3.logging import cleanup_logging, setup_logging
+from dinov3.logging import cleanup_logging, setup_logging
 # from dinov3.logging import setup_logging
 # from dinov3.utils import fix_random_seeds, get_conda_env, get_sha
 from dinov3.utils import fix_random_seeds
@@ -89,6 +89,7 @@ def setup_config(args: DinoV3SetupArgs, strict_cfg=True):
     
     if args.output_dir is not None:
         write_config(config, args.output_dir)
+
     
     apply_scaling_rules_to_cfg(config)
     return config
@@ -114,14 +115,12 @@ def setup_job(
         output_dir = os.path.relpath(output_dir)
         os.makedirs(output_dir, exist_ok=True)
     
-    # temp
     if logging_enabled:
-        print("logging isn't setup atp")
-        # setup_logging(
-        #     output=output_dir,
-        #     level=logging.INOF,
-        #     log_to_stdout_only_in_main_process=restricted_print_to_main_process,
-        # )
+        setup_logging(
+            output=output_dir,
+            level=logging.INFO,
+            log_to_stdout_only_in_main_process=restricted_print_to_main_process,
+        )
     
     if distributed_enabled:
         print("distributed thingy not setup atp")
