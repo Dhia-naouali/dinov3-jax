@@ -10,8 +10,10 @@ import math
 import logging
 import argparse
 from pathlib import Path
-from functools import partial
 from typing import Iterable
+from functools import partial
+from omegaconf import OmegaConf
+
 import torch
 
 import jax
@@ -283,11 +285,12 @@ def main(argv=None):
     else:
         setup_job(output_dir=args.output_dir, seed=args.seed)
         config = setup_config(args, strict_cfg=False)
-        logger.info(config)
+        logger.info(OmegaConf.to_yaml(config))
         setup_logging(
             output=os.path.join(os.path.abspath(args.output_dir), "nan_logs"),
             name="nan_logger"
         )
+
     meta_arch = {
         "SSLMetaArch": SSLMetaArch,
         "MultiDistillationMetaArch": MultiDistillationMetaArch
@@ -311,13 +314,10 @@ def main(argv=None):
     # fill with nans to check for init
     logger.info(f"Model after distributed #### TO FIX ####:\n{model}")
     init_params = model.init(key, fake_batch, teacher_temp=.7, iteration=0)
-    # main_key = jax.random.PRNGKey(12)
-    # main_key, init_key = jax.random.split(main_key)
-    # input_shape = ...
-    
-    # params = model.init(init_key, jnp.zeros(input_shape))
     
     # prepare for FSDP (replicate across devices ?)
+    model.prepare_for_distributed_training(init_params)
+
     logger.info(f"...") # jax.debug.visualize_array_sharding ???
     print(args.eval_only)
     if args.eval_only:
@@ -353,7 +353,6 @@ def do_train(config, model_n_params, resume=False):
         wd_schedule=wd_schedule, 
         last_layer_lr_schedule=last_layer_lr_schedule
     )
-    import IPython; IPython.embed()
     student_params = {
         k: v for k, v in init_params["params"].items()
         if "student_" in k
@@ -459,6 +458,7 @@ def do_train(config, model_n_params, resume=False):
             print("to clip grads")
 
 
+        import IPython; IPython.embed()
 
         # reduce loss & metric logs
         total_loss_all_ranks = ...

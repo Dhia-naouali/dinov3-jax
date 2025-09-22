@@ -20,6 +20,7 @@ from dinov3.train.cosine_lr_scheduler import linear_warmup_cosine_decay
 from dinov3.train.param_groups import get_params_groups_with_decay_fsdp, fuse_params_groups
 from dinov3.configs import get_default_config
 from dinov3.data import DataAugmentationDINO
+from dinov3.fsdp.ac_compile_parallelize import ac_compile_parallelize
 
 
 logger = logging.getLogger("dinov3")
@@ -577,6 +578,10 @@ class SSLMetaArch(nn.Module):
 
 
     def get_maybe_fused_params_for_submodel(self, m, root_name=""):
+        def set_paramdict_attrs(pd):
+            pd.foreach=True; pd.fused=True
+            return pd
+
         params_groups = get_params_groups_with_decay_fsdp(
             model=m,
             lr_decay_rate=self.config.optim.layerwise_decay,
@@ -599,6 +604,12 @@ class SSLMetaArch(nn.Module):
             return params_groups
 
 
-def set_paramdict_attrs(pd):
-    pd.foreach=True; pd.fused=True
-    return pd
+    def prepare_for_distributed_training(self, params):
+        student = {k: v for k, v in params["params"].items() if "student_" in k}
+        teacher = {k: v for k, v in params["params"].items() if "teacher_" in k}
+        
+        ac_compile_parallelize(
+            trained_model=student,
+            inference_only_models=teacher,
+            config=self.config,
+        )
