@@ -315,6 +315,7 @@ def main(argv=None):
     logger.info(f"Model after distributed #### TO FIX ####:\n{model}")
     init_params = model.init(key, fake_batch, teacher_temp=.7, iteration=0)
     
+    import IPython; IPython.embed()
     # prepare for FSDP (replicate across devices ?)
     model.prepare_for_distributed_training(init_params)
 
