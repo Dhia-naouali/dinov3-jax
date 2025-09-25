@@ -29,7 +29,7 @@ class DINOLoss(nn.Module):
 
 
     def sinkhorn_knopp_teacher(
-        self, teacher_output, teacher_temp, n_iterations=3
+        self, teacher_output, teacher_temp, n_iterations=3, init_phase=False
     ):
         world_size = jax.device_count()
         Q = jnp.exp(teacher_output / teacher_temp).T
@@ -38,14 +38,14 @@ class DINOLoss(nn.Module):
 
         sum_Q = jnp.sum(Q)
 
-        if world_size > 1:
+        if not init_phase and world_size > 1:
             sum_Q = jax.lax.psum(sum_Q, axis_name="dp")
         
         Q /= sum_Q
         for _ in range(n_iterations):
             # rows normalization
             sum_of_rows = jnp.sum(Q, axis=1, keepdims=True)
-            if world_size > 1:
+            if not init_phase and world_size > 1:
                 sum_of_rows = jax.lax.psum(sum_of_rows, axis_name="dp")
             Q /= sum_of_rows
             Q /= K

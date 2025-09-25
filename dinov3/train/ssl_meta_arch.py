@@ -73,7 +73,9 @@ class SSLMetaArch(nn.Module):
             DINOHead,
             in_dim=embed_dim,
             out_dim=self.config.dino.head_n_prototypes,
-            hidden_dim=self.config.dino.head_nlayers
+            hidden_dim=self.config.dino.head_hidden_dim,
+            bottleneck_dim=self.config.dino.head_bottleneck_dim,
+            nlayers=self.config.dino.head_nlayers
         )
 
         self.student_dino_head = dino_head_class()
@@ -273,7 +275,7 @@ class SSLMetaArch(nn.Module):
 
     def __call__(
     # def forward_backward(
-            self, data, *, teacher_temp, iteration=0, deterministic=True #, **ignored_kwargs
+            self, data, *, teacher_temp, iteration=0, deterministic=True, init_phase=False #, **ignored_kwargs, 
     ):
         
         # del ignored_kwargs
@@ -307,7 +309,8 @@ class SSLMetaArch(nn.Module):
             n_masked_patches_tensor=n_masked_patches_tensor,
             mask_indices_list=mask_indices_list,
             upperbound=data["upperbound"],
-            deterministic=deterministic
+            deterministic=deterministic,
+            init_phase=init_phase
         )
 
         student_global, student_local = self.get_student_output(
@@ -347,7 +350,7 @@ class SSLMetaArch(nn.Module):
     
 
     def get_teacher_output(
-            self, images, *, upperbound, mask_indices_list, teacher_temp, n_masked_patches_tensor, deterministic=True
+            self, images, *, upperbound, mask_indices_list, teacher_temp, n_masked_patches_tensor, deterministic=True, init_phase=False
     ):
         n_crops, B, rgb, H, W = images.shape
         images = images.reshape(-1, rgb, H, W)
@@ -365,12 +368,14 @@ class SSLMetaArch(nn.Module):
         cls_centered = self.dino_loss.sinkhorn_knopp_teacher(
             cls_after_head,
             teacher_temp=teacher_temp,
+            init_phase=init_phase
         ).reshape(n_crops, B, -1)
         
         masked_patch_centered = self.ibot_patch_loss.sinkhorn_knopp_teacher(
             masked_patch_after_head,
             teacher_temp=teacher_temp,
-            n_masked_patches_tensor=n_masked_patches_tensor
+            n_masked_patches_tensor=n_masked_patches_tensor,
+            init_phase=init_phase
         )
 
         return {

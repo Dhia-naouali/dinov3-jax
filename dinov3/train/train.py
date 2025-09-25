@@ -30,8 +30,8 @@ from dinov3.data import MaskingGenerator, make_dataset, make_data_loader, collat
 # from somewhere import distributed
 
 logger = logging.getLogger("dinov3")
-
-
+jax.config.update('jax_num_cpu_devices', 8)
+INIT_PHASE = False
 
 def get_args_parser():
     parser = argparse.ArgumentParser()
@@ -313,7 +313,7 @@ def main(argv=None):
     model = meta_arch(config)
     # fill with nans to check for init
     logger.info(f"Model after distributed #### TO FIX ####:\n{model}")
-    init_params = model.init(key, fake_batch, teacher_temp=.7, iteration=0)
+    init_params = model.init(key, fake_batch, teacher_temp=.7, iteration=0, init_phase=True)
     
     import IPython; IPython.embed()
     # prepare for FSDP (replicate across devices ?)

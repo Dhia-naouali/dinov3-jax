@@ -71,19 +71,19 @@ class iBOTPatchLoss(nn.Module):
 
     # SinkhornKnoppTeacher
     def sinkhorn_knopp_teacher(
-        self, teacher_output, teacher_temp, n_masked_patches_tensor, n_iterations=3
+        self, teacher_output, teacher_temp, n_masked_patches_tensor, n_iterations=3, init_phase=False
     ):
         world_size = jax.device_count()
         Q = jnp.exp(teacher_output / teacher_temp).T
         B = n_masked_patches_tensor
-        if world_size > 1:
+        if not init_phase and world_size > 1:
             B = jax.lax.psum(B, axis_name="dp")
         else:
             B = jnp.sum(B)
         K = Q.shape[0]
 
         sum_Q = jnp.sum(Q)
-        if world_size > 1:
+        if not init_phase and world_size > 1:
             sum_Q = jax.lax.psum(sum_Q, axis_name="dp")
 
         Q /= sum_Q
@@ -91,7 +91,7 @@ class iBOTPatchLoss(nn.Module):
         for _ in range(n_iterations):
             # rows normalization
             sum_of_rows = jnp.sum(Q, axis=1, keepdims=True)
-            if world_size > 1:
+            if not init_phase and world_size > 1:
                 sum_of_rows = jax.lax.psum(sum_of_rows, axis_name="dp")
         
             Q /= sum_of_rows

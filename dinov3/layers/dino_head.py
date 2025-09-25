@@ -44,7 +44,7 @@ class DINOHead(nn.Module):
     out_dim: int
     use_bn: bool = False
     nlayers: int = 3
-    hidden_dim: int = 2048
+    hidden_dim: int = 128 # temp, 2048
     bottleneck_dim: int = 256
     mlp_bias: bool = True
 
