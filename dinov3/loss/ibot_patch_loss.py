@@ -64,7 +64,7 @@ class iBOTPatchLoss(nn.Module):
 
     def apply_center_update(self, teacher_output):
         local_center = jnp.mean(teacher_output, axis=0, keepdims=True)
-        global_center = jax.lax.pmean(local_center, axis_name="batch")
+        global_center = jax.lax.pmean(local_center, axis_name="dp")
         self.center.value = self.center.value * self.center_momentum +\
             global_center * (1 - self.center_momentum)
 
@@ -77,14 +77,14 @@ class iBOTPatchLoss(nn.Module):
         Q = jnp.exp(teacher_output / teacher_temp).T
         B = n_masked_patches_tensor
         if world_size > 1:
-            B = jax.lax.psum(B, axis_name="batch")
+            B = jax.lax.psum(B, axis_name="dp")
         else:
             B = jnp.sum(B)
         K = Q.shape[0]
 
         sum_Q = jnp.sum(Q)
         if world_size > 1:
-            sum_Q = jax.lax.psum(sum_Q, axis_name="batch")
+            sum_Q = jax.lax.psum(sum_Q, axis_name="dp")
 
         Q /= sum_Q
         
@@ -92,7 +92,7 @@ class iBOTPatchLoss(nn.Module):
             # rows normalization
             sum_of_rows = jnp.sum(Q, axis=1, keepdims=True)
             if world_size > 1:
-                sum_of_rows = jax.lax.psum(sum_of_rows, axis_name="batch")
+                sum_of_rows = jax.lax.psum(sum_of_rows, axis_name="dp")
         
             Q /= sum_of_rows
             Q /= K

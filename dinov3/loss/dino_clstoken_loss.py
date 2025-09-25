@@ -39,14 +39,14 @@ class DINOLoss(nn.Module):
         sum_Q = jnp.sum(Q)
 
         if world_size > 1:
-            sum_Q = jax.lax.psum(sum_Q, axis_name="batch")
+            sum_Q = jax.lax.psum(sum_Q, axis_name="dp")
         
         Q /= sum_Q
         for _ in range(n_iterations):
             # rows normalization
             sum_of_rows = jnp.sum(Q, axis=1, keepdims=True)
             if world_size > 1:
-                sum_of_rows = jax.lax.psum(sum_of_rows, axis_name="batch")
+                sum_of_rows = jax.lax.psum(sum_of_rows, axis_name="dp")
             Q /= sum_of_rows
             Q /= K
             
@@ -86,6 +86,6 @@ class DINOLoss(nn.Module):
 
     def apply_center_update(self, teacher_output):
         local_center = jnp.mean(teacher_output, axis=0, keepdims=True)
-        global_center = jax.lax.pmean(local_center, axis_name="batch")
+        global_center = jax.lax.pmean(local_center, axis_name="dp")
         self.center.value = self.center.value * self.center_momentum +\
             global_center * (1 - self.center_momentum)

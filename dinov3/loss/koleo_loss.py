@@ -45,7 +45,7 @@ class KoLeoLossDistributed(nn.Module):
     def pairwise_NNs_inner(self, x, all_x):
         dots = x @ all_x.T
         local_B, global_B = dots.shape
-        device_idx = jax.lax.axis_index("batch") # rank
+        device_idx = jax.lax.axis_index("dp") # rank
         dots = dots.at[
             jnp.arange(local_B),
             device_idx * local_B + jnp.arange(local_B)
@@ -54,7 +54,7 @@ class KoLeoLossDistributed(nn.Module):
 
     def __call__(self, student_output, eps=1e-8):
         student_output /= jnp.linalg.norm(student_output, ord=2, axis=-1) + eps
-        all_student_outputs = jax.lax.all_gather(student_output, axis_name="batch").reshape(
+        all_student_outputs = jax.lax.all_gather(student_output, axis_name="dp").reshape(
             -1, student_output.shape[-1]
         )
         

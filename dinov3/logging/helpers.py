@@ -36,7 +36,7 @@ class SmoothedValue:
         if not distributed.is_enabled():
             return
         t = jnp.array([self.count, self.total], dtype=jnp.float64)
-        global_t = jax.lax.psum(t, axis_name="batch")
+        global_t = jax.lax.psum(t, axis_name="dp")
         t = global_t.tolist()
         self.count = int(t[0])
         self.total = t[1]
