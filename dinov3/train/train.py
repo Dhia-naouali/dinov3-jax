@@ -29,6 +29,15 @@ from dinov3.data import MaskingGenerator, make_dataset, make_data_loader, collat
 
 # from somewhere import distributed
 
+
+# logdir = "/tmp/jax_trace"
+# os.makedirs(logdir, exist_ok=True)
+
+# # Start recording a profile
+# jax.profiler.start_trace(logdir)
+
+
+
 logger = logging.getLogger("dinov3")
 jax.config.update('jax_num_cpu_devices', 8)
 INIT_PHASE = False
@@ -315,9 +324,8 @@ def main(argv=None):
     logger.info(f"Model after distributed #### TO FIX ####:\n{model}")
     init_params = model.init(key, fake_batch, teacher_temp=.7, iteration=0, init_phase=True)
     
-    import IPython; IPython.embed()
     # prepare for FSDP (replicate across devices ?)
-    model.prepare_for_distributed_training(init_params)
+    init_params = model.prepare_for_distributed_training(init_params)
 
     logger.info(f"...") # jax.debug.visualize_array_sharding ???
     print(args.eval_only)
@@ -350,8 +358,8 @@ def do_train(config, model_n_params, resume=False):
     optimizer = build_optimizer(
         config, 
         param_groups, 
-        lr_schedule=lr_schedule, 
-        wd_schedule=wd_schedule, 
+        lr_schedule=lr_schedule,
+        wd_schedule=wd_schedule,
         last_layer_lr_schedule=last_layer_lr_schedule
     )
     student_params = {
@@ -360,7 +368,6 @@ def do_train(config, model_n_params, resume=False):
     }
 
     optimizer_state = optimizer.init(student_params)
-
 
 
     if config.multidistillation.enabled:
@@ -450,6 +457,7 @@ def do_train(config, model_n_params, resume=False):
         mom = momentum_schedule[it]
         teacher_temp = teacher_temp_schedule[it]
         last_layer_lr = last_layer_lr_schedule[it]
+        import IPython; IPython.embed()
         train_loss, metrics_dict = model.apply(init_params, data, teacher_temp=teacher_temp, iteration=it, rngs={
             "dropout": jax.random.PRNGKey(1), "drop_path": jax.random.PRNGKey(2)
         })

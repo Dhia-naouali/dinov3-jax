@@ -1,47 +1,37 @@
 import logging
-from functools import partial
-from typing import Any, List, Optional
+import jax
+import logging
+import numpy as np
+from jax.sharding import NamedSharding, PartitionSpec as P
 
-
-# import torch 
-# import torch.distributed as dist
-# from torch import nn
-# from torch.distributed._composable.fsdp import MixedPrecisionPolicy, fully_shard
-# from torch.distributed.device_mesh import DeviceMesh, init_device_mesh
-# from torch.distributed.fsdp import register_fsdp_forward_method
-# from torch.distributed.fsdp._fully_shard._fsdp_state import FSDPState
-# from torch.utils.checkponit import create_selective_checkpoint_contexts
-
-from dinov3.utils import utils
 
 logger = logging.getLogger("dinov3")
 
-def ac_compile_parallelize(
-        trained_model,
-        inference_only_models,
-        config: Any,
-):
-    """
-    this implementation significantly deviate from the original repo / pytorch implementation
-    due to the design choices / architecture differences between JAX and PyTorch
-    the function name is kept the same to avoid evitable changes to the repo structure during translation
-    """
 
-    # 1. AC: mainly unnecessary since XLA has a global graph awareness and does already optimize compute / save tradeoffs
-    if config.train.checkpointing_full:
-        print("block full checkpoint (to implement)")
-    else:
-        logger.info(
-            "manual selective checkpointing ignored  have faith-in-XLA"
-            "if this melted your GPU please open an issue (at github.com/openxla/xla)"
-        )
+
+def ac_compile_parallelize(trained_model, inference_only_models, config, min_shard_size=2**12):
+    axis_name = "dp"
+    axis_size = jax.device_count()
+
+    mesh = jax.make_mesh((jax.device_count(),), (axis_name,))
+
+
+    def _find_shard_axis(p):
+        idx = np.argsort(p.shape)[::-1]
+        partition_axes = [None] * len(p.shape)
+        for i in idx:
+            if p.shape[i] % axis_size == 0:
+                partition_axes[i] = axis_name
+                return tuple(partition_axes)
+        logging.info("Parameter {p.shae} can't be sharded on any axis")
+        return tuple(partition_axes)
+
+    def _shard_param(p):        
+        if p.ndim == 1:
+            return p
+        
+        p_shape = _find_shard_axis(p)
+        print(p.shape, p_shape)
+        return jax.device_put(p, NamedSharding(mesh, P(*p_shape)))
     
-    import IPython; IPython.embed()
-    # 2. compile: will be performed using func transform / decorator
-
-
-
-    # 3. FSDP
-    
-
-
+    return jax.tree_util.tree_map(_shard_param, trained_model)

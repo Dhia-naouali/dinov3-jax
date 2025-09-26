@@ -272,12 +272,10 @@ class SSLMetaArch(nn.Module):
         
 
 
-
     def __call__(
     # def forward_backward(
             self, data, *, teacher_temp, iteration=0, deterministic=True, init_phase=False #, **ignored_kwargs, 
-    ):
-        
+    ):        
         # del ignored_kwargs
         metrics_dict = {}
 
@@ -613,8 +611,13 @@ class SSLMetaArch(nn.Module):
         student = {k: v for k, v in params["params"].items() if "student_" in k}
         teacher = {k: v for k, v in params["params"].items() if "teacher_" in k}
         
-        ac_compile_parallelize(
-            trained_model=student,
-            inference_only_models=teacher,
-            config=self.config,
+        sharded_params = ac_compile_parallelize(
+            trained_model=params["params"],
+            inference_only_models=None,
+            config=None,
         )
+
+        for k in sharded_params.keys():
+            params["params"][k] = sharded_params[k]
+        
+        return params

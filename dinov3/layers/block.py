@@ -133,8 +133,7 @@ class SelfAttentionBlock(nn.Module):
             )
         ]
         
-        
-        
+
         if not deterministic and self.sample_drop_ratio > 0.:
             indices_1_list = [
                 jax.random.permutation(
@@ -201,6 +200,9 @@ class SelfAttentionBlock(nn.Module):
         return x_ffn
 
     def __call__(self, x_or_x_list, rope_or_rope_list=None, deterministic=True):
+        a = "simple"
+        import IPython; IPython.embed()
+
         if isinstance(x_or_x_list, jnp.ndarray):
             # a77a
             return self._apply_list([x_or_x_list], rope_list=[rope_or_rope_list], deterministic=deterministic)[0]
@@ -256,6 +258,8 @@ class CausalSelfAttentionBlock(nn.Module):
         self.ls2 = LayerScale(self.dim, init_values=self.ls_init_value) if self.ls_init_value else lambda x: x
         
     def __call__(self, x):
+        a = "causal"
+        import IPython; IPython.embed()
         x_attn = x + self.ls1(self.attention(self.attention_norm(x), self.is_causal))
         x_ffn = x_attn + self.ls2(self.feed_forward(self.ffn_norm(x_attn)))
         return x_ffn
