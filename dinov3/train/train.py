@@ -321,7 +321,8 @@ def main(argv=None):
     key = jax.random.key(1)
     model = meta_arch(config)
     # fill with nans to check for init
-    logger.info(f"Model after distributed #### TO FIX ####:\n{model}")
+    model.init(key, fake_batch, teacher_temp=.7, iteration=0)
+    logger.info(f"Model after distributed #### FIXED ??? ####:\n{jax.tree_util.tree_map(lambda p: p.sharding, init_params)}")
     init_params = model.init(key, fake_batch, teacher_temp=.7, iteration=0, init_phase=True)
     
     # prepare for FSDP (replicate across devices ?)

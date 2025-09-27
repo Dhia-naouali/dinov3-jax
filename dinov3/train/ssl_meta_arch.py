@@ -7,6 +7,8 @@ import logging
 from functools import partial
 from omegaconf import OmegaConf
 from typing import Any
+from dataclasses import dataclass
+
 
 import jax
 import jax.numpy as jnp
@@ -25,40 +27,47 @@ from dinov3.fsdp.ac_compile_parallelize import ac_compile_parallelize
 
 logger = logging.getLogger("dinov3")
 
-class SSLMetaArch(nn.Module):
-    config: Any
+class SSLMetaArch:
+    # config: Any
 
-    dino_global_ignore_diagonal = None
-    dino_local_loss_schedule = None
-    dino_loss_weight = None
-    dino_koleo_loss_weight = None
-    ibot_koleo_loss_weight = None
-    gram_img_level = None
-    gram_compute_stats = None
-    gram_loss_weight = None
-    dino_loss = DINOLoss
+    # dino_global_ignore_diagonal = None
+    # dino_local_loss_schedule = None
+    # dino_loss_weight = None
+    # dino_koleo_loss_weight = None
+    # ibot_koleo_loss_weight = None
+    # gram_img_level = None
+    # gram_compute_stats = None
+    # gram_loss_weight = None
+    # dino_loss = DINOLoss
 
-    def setup(self):
+    def __init__(self, config):
+        self.config = config
+
         assert self.config.crops.local_crops_number > 0
         assert self.config.ibot.separate_head is True
         assert self.config.train.centering == "sinkhorn_knopp"
 
         assert self.config.compute_precision.sharding_strategy == "SHARD_GRAD_OP"
-        
+
+        student = {}
+        teacher = {}
+        gram_teacher = {}
+
         student_backbone, teacher_backbone, embed_dim = build_model_from_cfg(self.config)
-        # gc.collect()
+        gc.collect()
         gram_backbone, _ = build_model_from_cfg(self.config, only_teacher=True)
+
+        student["backbone"] = student_backbone
+        teacher["backbone"] = teacher_backbone
+        gram_teacher["backbone"] = gram_backbone
         # logger.info(f"Number of parameters: {count_parameters(student_backbone)}")
         
-        # self.student = {}
-        # self.teacher = {}
-        # self.gram_model = {}
-
-        self.student_backbone = student_backbone
-        self.teacher_backbone = teacher_backbone
-        self.gram_model_backbone = gram_backbone
+        # self.student_backbone = student_backbone
+        # self.teacher_backbone = teacher_backbone
+        # self.gram_model_backbone = gram_backbone
         logger.info(f"OPTIONS -- architecture: embed_dim: {embed_dim}")
         self.embed_dim = embed_dim
+
         self.dino_out_dim = self.config.dino.head_n_prototypes
 
         logger.info("OPTIONS -- DINO")
@@ -78,9 +87,9 @@ class SSLMetaArch(nn.Module):
             nlayers=self.config.dino.head_nlayers
         )
 
-        self.student_dino_head = dino_head_class()
-        self.teacher_dino_head = dino_head_class()
-        self.dino_loss = self.dino_loss(self.dino_out_dim)
+        student["dino_head"] = dino_head_class()
+        teacher["dino_head"] = dino_head_class()
+        self.dino_loss = DINOLoss(self.dino_out_dim)
 
         logger.info("OPTIONS -- KOLEO")
         logger.info(f"OPTIONS -- KOLEO -- loss_weight: {self.config.dino.koleo_loss_weight}")
@@ -104,6 +113,17 @@ class SSLMetaArch(nn.Module):
         logger.info(f"OPTIONS -- IBOT -- loss_weight: {self.config.ibot.loss_weight}")
         logger.info(f"OPTIONS -- IBOT masking -- ibot_mask_ratio_tuple: {self.config.ibot.mask_ratio_min_max}")
         logger.info(f"OPTIONS -- IBOT masking -- ibot_mask_sample_probability: {self.config.ibot.mask_sample_probability}")
+
+
+        assert 0 <= self.config.ibot.mask_ratio_min_max[0] < self.config.ibot.mask_ratio_min_max[1] <= 1, (
+            "provide a valid cfg.ibot.mask_ratio_min_max"
+        )
+        assert 0 <= self.config.ibot.mask_sample_probability <= 1, "provide a positive mask probability for ibot"
+        logger.info(f"OPTIONS -- IBOT -- head_n_prototypes: {self.config.ibot.head_n_prototypes}")
+        logger.info(f"OPTIONS -- IBOT -- head_bottleneck_dim: {self.config.ibot.head_bottleneck_dim}")
+        logger.info(f"OPTIONS -- IBOT -- head_hidden_dim: {self.config.ibot.head_hidden_dim}")
+        logger.info(f"OPTIONS -- IBOT -- head_norm_last_layer: {self.config.ibot.head_norm_last_layer}")
+
         ibot_head_class = partial(
             DINOHead,
             in_dim=self.embed_dim,
@@ -112,12 +132,14 @@ class SSLMetaArch(nn.Module):
             bottleneck_dim=self.config.ibot.head_bottleneck_dim,
             nlayers=self.config.ibot.head_nlayers,
         )
-        self.student_ibot_head = ibot_head_class()
-        self.teacher_ibot_head = ibot_head_class()
+        student["ibot_head"] = ibot_head_class()
+        teacher["ibot_head"] = ibot_head_class()
         self.ibot_patch_loss = iBOTPatchLoss(self.config.ibot.head_n_prototypes)
-        
-        
-        # self.model_ema = self.teacher # may be overwritten for distillation
+
+
+        self.student = student
+        self.teacher = teacher
+        self.model_ema = self.teacher
         logger.info(f"Student and Teacher are built: they are both {self.config.student.arch} network")
 
         if self.config.distillation.enabled:
@@ -160,10 +182,10 @@ class SSLMetaArch(nn.Module):
             )
             self.has_gram_teacher = True if not self.config.gram.ema_teacher else False
             if self.has_gram_teacher:
-                self.gram_teacher = self.gram_model
+                self.gram_teacher = gram_teacher
                 logger.info(f"Gram teacher parameter at init: #")
             else:
-                self.gram_teacher = self.gram_model = None
+                self.gram_teacher = None
             self.gram_loss_weight = self.config.gram.loss_weight
             if self.config.gram.get("loss_weight_schedule"):
                 iter_per_epoch = self.config.train.OFFICIAL_EPOCH_LENGTH
@@ -270,6 +292,139 @@ class SSLMetaArch(nn.Module):
             nlayers=distillation_config.ibot.head_nlayers
         )
         
+
+
+    def init(self, key, data, *, teacher_temp, iteration=0, deterministic=True):
+        teacher_key, student_key, gram_key = jax.random.split(key, 3)
+        metrics_dict = {}
+        n_global_crops = 2
+        n_local_crops = self.n_local_crops
+        B = data["collated_local_crops"].shape[0] // n_local_crops
+        assert data["collated_global_crops"].shape[0] == n_global_crops * B
+        metrics_dict["local_batch_size"] = B
+        metrics_dict["global_batch_size"] = data["global_batch_size"]
+
+        global_crops = data["collated_global_crops"] # to device
+        local_crops = data["collated_local_crops"] # to device
+        masks = data["collated_masks"] # to device
+        mask_indices_list = data["mask_indices_list"] # to device
+        masks_weight = data["masks_weight"] # to device
+        n_masked_patches_tensor = data["n_masked_patches"]
+
+        if self.has_gram_teacher:
+            assert "collated_gram_teacher_crops" in data, (
+                "no gram teacher crops in the data, have you set cfg.crops.gram_teacher_crops_size?"
+            )
+            gram_teacher_crops = data["collated_gram_teacher_crops"] # to device
+        else:
+            gram_teacher_crops = None
+
+        
+        ###################################################
+        ###################################################
+        ###################################################
+        ###################################################
+        # teacher_global = self.get_teacher_output
+        ###################################################
+        tbackbone_key, tdino_head_key, tibot_head_key = jax.random.split(teacher_key, 3)
+
+        images=global_crops.reshape(n_global_crops, B, *global_crops.shape[1:])
+        teacher_temp=teacher_temp
+        n_masked_patches_tensor=n_masked_patches_tensor
+        mask_indices_list=mask_indices_list
+        upperbound=data["upperbound"]
+        deterministic=deterministic
+        n_crops, B, rgb, H, W = images.shape
+        images = images.reshape(-1, rgb, H, W)
+
+        backbone_out = self.teacher["backbone"].init(tbackbone_key, images, is_training=True, deterministic=deterministic)
+        import IPython; IPython.embed()
+
+        cls = backbone_out["x_norm_clstoken"] # n_crops * B, D
+        reg = backbone_out["x_storage_tokens"] # n_crops, * B, R, D
+        ibot_patch = backbone_out["x_norm_patchtokens"] # n_crops * B, P, D
+        
+        buffer = ibot_patch.reshape(-1, ibot_patch.shape[-1])[mask_indices_list, ...]
+        masked_patch_after_head = self.teacher["ibot_head"].init(tibot_head_key, buffer)
+
+        cls_after_head = self.teacher["dino_head"].init(tdino_head_key, cls)
+
+        cls_centered = self.dino_loss.sinkhorn_knopp_teacher(
+            cls_after_head,
+            teacher_temp=teacher_temp,
+        ).reshape(n_crops, B, -1)
+        
+        masked_patch_centered = self.ibot_patch_loss.sinkhorn_knopp_teacher(
+            masked_patch_after_head,
+            teacher_temp=teacher_temp,
+            n_masked_patches_tensor=n_masked_patches_tensor,
+        )
+
+        teacher_global = {
+            "cls_pre_head": cls.reshape((n_crops, B) + cls.shape[1:]),                          # [n_crops, B, D]
+            "reg_pre_head": reg.reshape((n_crops, B) + reg.shape[1:]),                          # [n_crops, B, R, D]
+            "patch_pre_head": ibot_patch.reshape((n_crops, B) + ibot_patch.shape[1:]),          # [n_crops, B, P, D]
+            "cls_after_head": cls_after_head.reshape((n_crops, B) + cls_after_head.shape[1:]),  # [n_crops, B, K]
+            "cls_centered": cls_centered,  # [n_crops, B, K]
+            "masked_patch_centered": masked_patch_centered,  # [n_masked_patches, K]
+        }
+
+        ###################################################
+        ###################################################
+        ###################################################
+
+
+
+
+
+
+
+
+        student_global, student_local = self.get_student_output(
+            global_crops=global_crops.reshape(n_global_crops, B, *global_crops.shape[1:]),
+            local_crops=local_crops.reshape(n_local_crops, B, *local_crops.shape[1:]),
+            upperbound=data["upperbound"],
+            masks=masks,
+            mask_indices_list=mask_indices_list
+        )
+
+
+        if self.gram_use_loss:
+            gram_global = self.get_gram_teacher_output(
+                gram_teacher_crops.reshpae(n_global_crops, B, * gram_teacher_crops.shpae[1:]) 
+                    if gram_teacher_crops is not None else None,
+                masks=masks,
+                teacher_global=teacher_global,
+                student_global=student_global,
+                student_global_crops_size=global_crops.shape[-1]
+            )
+        else:
+            gram_global = {}        
+
+
+        loss_accumulator, loss_dict = self.compute_losses(
+            teacher_global=teacher_global,
+            student_global=student_global,
+            student_local=student_local,
+            gram_global=gram_global,
+            masks=masks,
+            mask_indices_list=mask_indices_list,
+            masks_weight=masks_weight,
+            iteration=iteration,
+        )
+        
+        return loss_accumulator, metrics_dict | loss_dict
+    
+
+
+
+
+
+
+
+
+
+
 
 
     def __call__(
