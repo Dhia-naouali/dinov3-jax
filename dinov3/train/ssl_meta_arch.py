@@ -6,7 +6,7 @@ import gc
 import logging
 from functools import partial
 from omegaconf import OmegaConf
-from typing import Any
+from typing import Callable, Any
 
 import jax
 import jax.numpy as jnp
@@ -21,7 +21,7 @@ from dinov3.train.param_groups import get_params_groups_with_decay_fsdp, fuse_pa
 from dinov3.configs import get_default_config
 from dinov3.data import DataAugmentationDINO
 from dinov3.fsdp.ac_compile_parallelize import ac_compile_parallelize
-
+from dinov3.fsdp.utils import fsdp_wrapper
 
 logger = logging.getLogger("dinov3")
 
@@ -37,6 +37,7 @@ class SSLMetaArch(nn.Module):
     gram_compute_stats = None
     gram_loss_weight = None
     dino_loss = DINOLoss
+    fsdp: Callable = partial(fsdp_wrapper, axis_name="dp")
 
     def setup(self):
         assert self.config.crops.local_crops_number > 0
@@ -70,7 +71,7 @@ class SSLMetaArch(nn.Module):
         logger.info(f"OPTIONS -- DINO -- head_norm_last_layer: {self.config.dino.head_norm_last_layer}")
         
         dino_head_class = partial(
-            DINOHead,
+            self.fsdp(DINOHead),
             in_dim=embed_dim,
             out_dim=self.config.dino.head_n_prototypes,
             hidden_dim=self.config.dino.head_hidden_dim,
@@ -104,8 +105,18 @@ class SSLMetaArch(nn.Module):
         logger.info(f"OPTIONS -- IBOT -- loss_weight: {self.config.ibot.loss_weight}")
         logger.info(f"OPTIONS -- IBOT masking -- ibot_mask_ratio_tuple: {self.config.ibot.mask_ratio_min_max}")
         logger.info(f"OPTIONS -- IBOT masking -- ibot_mask_sample_probability: {self.config.ibot.mask_sample_probability}")
+
+        assert 0 <= self.config.ibot.mask_ratio_min_max[0] < self.config.ibot.mask_ratio_min_max[1] <= 1, (
+            "provide a valid cfg.ibot.mask_ratio_min_max"
+        )
+        assert 0 <= self.config.ibot.mask_sample_probability <= 1, "provide a positive mask probability for ibot"
+        logger.info(f"OPTIONS -- IBOT -- head_n_prototypes: {self.config.ibot.head_n_prototypes}")
+        logger.info(f"OPTIONS -- IBOT -- head_bottleneck_dim: {self.config.ibot.head_bottleneck_dim}")
+        logger.info(f"OPTIONS -- IBOT -- head_hidden_dim: {self.config.ibot.head_hidden_dim}")
+        logger.info(f"OPTIONS -- IBOT -- head_norm_last_layer: {self.config.ibot.head_norm_last_layer}")
+
         ibot_head_class = partial(
-            DINOHead,
+            self.fsdp(DINOHead),
             in_dim=self.embed_dim,
             out_dim=self.config.ibot.head_n_prototypes,
             hidden_dim=self.config.ibot.head_hidden_dim,
@@ -255,36 +266,35 @@ class SSLMetaArch(nn.Module):
         backbone, embed_dim = build_model_from_cfg(distillation_config, only_teacher=True)
         self.teacher["backbone"] = backbone
 
-        self.teacher["dino_head"] = DINOHead(
+        self.teacher["dino_head"] = self.fsdp(DINOHead)(
             in_dim=embed_dim,
             out_dim=distillation_config.dino.head_hidden_dim,
             bottlenech_dim=distillation_config.dino.head_bottleneck_dim,
             nlayers=distillation_config.dino.head_nlayers
         )
 
-        teacher["ibot_head"] = DINOHead(
+        teacher["ibot_head"] = self.fsdp(DINOHead)(
             in_dim=embed_dim,
             out_dim=distillation_config.ibot.head_n_prototypes,
             hidden_dim=distillation_config.ibot.head_hidden_dim,
             bottleneck_dim=distillation_config.ibot.head_bottleneck_dim,
             nlayers=distillation_config.ibot.head_nlayers
         )
-        
-
+    
 
     def __call__(
     # def forward_backward(
-            self, data, *, teacher_temp, iteration=0, deterministic=True, init_phase=False #, **ignored_kwargs, 
-    ):        
+            self, data, *, teacher_temp=0, iteration=0, deterministic=True, init_phase=False #, **ignored_kwargs, 
+    ):
         # del ignored_kwargs
         metrics_dict = {}
 
         n_global_crops = 2
         n_local_crops = self.n_local_crops
         B = data["collated_local_crops"].shape[0] // n_local_crops
-        assert data["collated_global_crops"].shape[0] == n_global_crops * B
+        # assert data["collated_global_crops"].shape[0] == n_global_crops * B
         metrics_dict["local_batch_size"] = B
-        metrics_dict["global_batch_size"] = data["global_batch_size"]
+        # metrics_dict["global_batch_size"] = data["global_batch_size"]
 
         global_crops = data["collated_global_crops"] # to device
         local_crops = data["collated_local_crops"] # to device
@@ -343,7 +353,7 @@ class SSLMetaArch(nn.Module):
             masks_weight=masks_weight,
             iteration=iteration,
         )
-        
+        return loss_accumulator
         return loss_accumulator, metrics_dict | loss_dict
     
 
@@ -459,7 +469,7 @@ class SSLMetaArch(nn.Module):
         n_global_crops = student_global["cls_after_head"].shape[0]
         n_local_crops = student_local["cls_after_head"].shape[0]
         loss_dict = {}
-        loss_accumulator = 0.
+        loss_accumulator = jnp.array([0.])
 
         dino_global_terms = (
             n_global_crops * (n_global_crops - 1) if self.dino_global_ignore_diagonal else n_global_crops**2

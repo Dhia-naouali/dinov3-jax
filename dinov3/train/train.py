@@ -10,7 +10,7 @@ import math
 import logging
 import argparse
 from pathlib import Path
-from typing import Iterable
+from typing import Iterable, Any
 from functools import partial
 from omegaconf import OmegaConf
 
@@ -19,6 +19,10 @@ import torch
 import jax
 import optax
 import jax.numpy as jnp
+from flax.training import train_state
+import flax.linen as nn
+from jax.sharding import PartitionSpec as P
+
 
 from dinov3.train.cosine_lr_scheduler import CosineScheduler, linear_warmup_cosine_decay
 from dinov3.train.ssl_meta_arch import SSLMetaArch
@@ -26,6 +30,7 @@ from dinov3.train.multidist_meta_arch import MultiDistillationMetaArch
 from dinov3.configs import setup_job, setup_config
 from dinov3.logging import setup_logging, MetricLogger
 from dinov3.data import MaskingGenerator, make_dataset, make_data_loader, collate_data_and_cast, SamplerType
+from dinov3.fsdp.utils import sync_grads
 
 # from somewhere import distributed
 
@@ -308,24 +313,12 @@ def main(argv=None):
         raise ValueError(f"Unkown MODEL.META_ARCHITECTURE {config.MODEL.META_ARCHITECTURE}")
 
     logger.info(f"Making meta arch {meta_arch.__name__}")
-    fake_batch = {
-        "collated_global_crops": jnp.ones((2 * 4, 224, 224, 3)),  # (2 global crops per image * batch_size=4)
-        "collated_local_crops": jnp.ones((8 * 4, 96, 96, 3)),     # (local crops)
-        "collated_masks": jnp.ones((8, 196)),                     # fake patch masks
-        "mask_indices_list": jnp.arange(68*4),                    # indices
-        "masks_weight": jnp.ones((8,)),                           # weights
-        "n_masked_patches": jnp.array([50, 60, 70, 80]),
-        "upperbound": 1.0,
-        "global_batch_size": 4,
-    }
-    key = jax.random.key(1)
     model = meta_arch(config)
     # fill with nans to check for init
     logger.info(f"Model after distributed #### TO FIX ####:\n{model}")
-    init_params = model.init(key, fake_batch, teacher_temp=.7, iteration=0, init_phase=True)
     
     # prepare for FSDP (replicate across devices ?)
-    init_params = model.prepare_for_distributed_training(init_params)
+    # init_params = model.prepare_for_distributed_training(init_params)
 
     logger.info(f"...") # jax.debug.visualize_array_sharding ???
     print(args.eval_only)
@@ -337,17 +330,108 @@ def main(argv=None):
         ).get("teration", 1) + 1
         
         return do_test(config, model, f"manual_{iteration}")
-    do_train(config, (model, init_params), resume=not args.no_resume)
+    do_train(config, model, resume=not args.no_resume)
 
 
 
-def do_train(config, model_n_params, resume=False):
-    model, init_params = model_n_params
+def do_train(config, model, resume=False):
+    class TrainState(train_state.TrainState):
+        rngs: Any = None
+
+
+    data_loader = build_multi_resolution_data_loader_from_cfg(
+        config=config,
+        model=model,
+        start_iter=0,
+    )
+    fake_batch = next(iter(data_loader))
+    # import IPython; IPython.embed()
+    # batch_pspec = {
+    #     "collated_global_crops": P("dp", None, None, None),  # shard only batch dim
+    #     "collated_local_crops": P("dp", None, None, None),
+    #     "collated_masks": P("dp", None),
+    #     "mask_indices_list": P("dp"),
+    #     "masks_weight": P("dp"),
+    #     "n_masked_patches": P("dp"),
+    #     "upperbound": P(),  # not batch-dependent
+    # }
+
+
+
+    batch_pspec = {
+        'collated_global_crops': P("dp"),
+        'collated_local_crops': P("dp"),
+        "collated_masks": P("dp"),
+        "mask_indices_list": P(),
+        "n_masked_patches": P(),
+        "masks_weight": P(),
+        "upperbound": P(),
+        # "global_batch_size": P(),
+    }
+
+
+
+    # batch_pspec = {
+    #     "collated_global_crops": P(),
+    #     "collated_local_crops": P(),
+    #     "collated_masks": P(),
+    #     "mask_indices_list": P(),
+    #     "masks_weight": P(),
+    #     "n_masked_patches": P(),
+    #     "upperbound": P(),
+    #     # "global_batch_size": P(),
+    # }
+
+
+    main_rng = jax.random.PRNGKey(config.train.seed)
+    main_rng, init_rng, dropout_rng, drop_path_rng = jax.random.split(main_rng, 4)
     # no process subgroups
     ckpt_dir = Path(config.train.output_dir, "ckpt").expanduser()
     ckpt_dir.mkdir(parents=True, exist_ok=True)
 
-    param_groups = model.get_params_groups(init_params["params"])
+    def init_dp(rng, inputs, model):
+        init_rng, rng = jax.random.split(rng)
+        return model.init(init_rng, inputs, teacher_temp=.7, iteration=0, init_phase=True) # somehow state
+
+
+    mesh = jax.make_mesh(
+        (len(jax.devices()),),
+        ("dp",)
+    )
+    def shard_batch_item(item, spec):
+        return jax.device_put(item, jax.sharding.NamedSharding(mesh, spec))
+
+    fake_batch = jax.tree_util.tree_map(shard_batch_item, fake_batch, batch_pspec)
+
+
+    param_specs = nn.get_partition_spec(
+        jax.eval_shape(
+            jax.shard_map(
+                partial(init_dp, model=model),
+                mesh=mesh,
+                in_specs=(P(), batch_pspec),
+                out_specs=P(),
+                check_vma=False
+            ),
+            init_rng,
+            fake_batch,
+        )
+    )
+
+    init_fsdp = jax.jit(
+        jax.shard_map(
+            partial(init_dp, model=model),
+            mesh=mesh,
+            in_specs=(P(), batch_pspec),
+            out_specs=param_specs
+        )
+    )
+
+    params_fsdp = init_fsdp(init_rng, fake_batch)
+
+    # init_params = model.init(key, fake_batch, teacher_temp=.7, iteration=0, init_phase=True)
+
+    param_groups = model.get_params_groups(params_fsdp["params"])
     (
         lr_schedule,
         wd_schedule,
@@ -363,12 +447,11 @@ def do_train(config, model_n_params, resume=False):
         last_layer_lr_schedule=last_layer_lr_schedule
     )
     student_params = {
-        k: v for k, v in init_params["params"].items()
+        k: v for k, v in params_fsdp["params"].items()
         if "student_" in k
     }
 
     optimizer_state = optimizer.init(student_params)
-
 
     if config.multidistillation.enabled:
         register_dont_save_hooks(
@@ -402,12 +485,6 @@ def do_train(config, model_n_params, resume=False):
     
     global_batch_size = config.train.batch_size_per_gpu * jax.device_count()
 
-    data_loader = build_multi_resolution_data_loader_from_cfg(
-        config=config,
-        model=model,
-        start_iter=start_iter,
-    )
-
 
     logger.info(f"Starting training from iteration {start_iter}")
     metrics_file = os.path.join(config.train.output_dir, "training_metrics.json")
@@ -415,7 +492,77 @@ def do_train(config, model_n_params, resume=False):
     # gc.disable()
     gc.collect()
 
-    next(iter(data_loader))
+    # next(iter(data_loader))
+    rngs={"dropout": jax.random.PRNGKey(1), "drop_path": jax.random.PRNGKey(2)}
+
+    # import IPython; IPython.embed()
+
+    # def temp(_, data, _1, _2, _3, _4):
+    #     for k, v in data.items():
+    #         if isinstance(v, jnp.ndarray):
+    #             print(k, v.shape, v.sharding)
+    #         else:
+    #             print(k, v)
+
+    # apply_fsdp = jax.jit(
+    #     jax.shard_map(
+    #         # model.apply,
+    #         temp,
+    #         mesh=mesh,
+    #         in_specs=(
+    #             param_specs, 
+    #             P(), # data to DP shard
+    #             P(), # teacher_temp,
+    #             P(), # iteration
+    #             P(), # rng thingy
+    #         ),
+    #         out_specs=P("dp"), # loss, to reduce in model.apply
+    #         # re return metrics dict
+    #     ),
+    #     donate_argnums=(0, 1, 4)
+    # )
+
+    apply_fsdp = jax.jit(
+        jax.shard_map(
+            model.apply,
+            mesh=mesh,
+            in_specs=(
+                param_specs,
+                batch_pspec, # data to DP shard
+            ),
+            out_specs=P("dp"), # loss, to reduce in model.apply
+            # check_vma=False# re return metrics dict
+        ),
+        donate_argnums=(0,)
+    )
+    apply_fsdp(params_fsdp, fake_batch)
+
+    
+    import IPython; IPython.embed()
+    fsdp_state = TrainState(
+        step=start_iter,
+        apply_fn=...,
+        params=params_fsdp,
+        tx=optimizer,
+        opt_state=optimizer_state,
+        rngs={
+            "dropout": dropout_rng, "drop_path": drop_path_rng
+        }
+    )
+
+
+
+    train_loss, metrics_dict = model.apply(
+        params_fsdp, 
+        data, 
+        teacher_temp=teacher_temp, 
+        iteration=it, 
+        rngs={
+            "dropout": jax.random.PRNGKey(1), 
+            "drop_path": jax.random.PRNGKey(2)
+        }
+    )
+
 
     # student = model.student
     iteration = start_iter
@@ -429,6 +576,33 @@ def do_train(config, model_n_params, resume=False):
     ):
         num_gram_updates = math.ceil((start_iter + 1 - config.gram.it_first_update)  / config.gram.update_frequency)
         logger.info(f"Gram was updated {num_gram_updates} times before iteration {start_iter}")
+
+
+    def train_step(state, batch):
+        # rng, _ = jax.random.split(state.rngs)
+        loss, grads = jax.value_and_grad(state.apply_fn)(
+            state.params, 
+            batch, 
+            teacher_temp=.7, 
+            iteration=0,
+            rngs=state.rngs,
+        )
+        grads = sync_grads(grads)
+
+        new_state = state.apply_gradients(grads=grads)
+        loss = jax.lax.pmean(loss, axis_name="dp")
+        return new_state, loss
+
+
+    train_step_fsdp = jax.jit(
+        jax.shard_map(
+            train_step,
+            mesh=mesh,
+            in_specs=...,
+            out_specs=...
+        )
+    )
+
 
 
     consecutive_nan_count = 0
@@ -457,8 +631,9 @@ def do_train(config, model_n_params, resume=False):
         mom = momentum_schedule[it]
         teacher_temp = teacher_temp_schedule[it]
         last_layer_lr = last_layer_lr_schedule[it]
+
         import IPython; IPython.embed()
-        train_loss, metrics_dict = model.apply(init_params, data, teacher_temp=teacher_temp, iteration=it, rngs={
+        train_loss, metrics_dict = model.apply(params_fsdp, data, teacher_temp=teacher_temp, iteration=it, rngs={
             "dropout": jax.random.PRNGKey(1), "drop_path": jax.random.PRNGKey(2)
         })
 

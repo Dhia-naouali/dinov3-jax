@@ -19,7 +19,7 @@ from dinov3.layers import (
     SelfAttentionBlock, 
     SwiGLUFFN
 )
-
+from dinov3.fsdp.utils import fsdp_wrapper
 
 logger = logging.getLogger("dinov3")
 
@@ -75,12 +75,13 @@ class DinoVisionTransformer(nn.Module):
     mask_k_bias: bool = False
     untie_cls_and_patch_norms: bool = False
     untie_global_and_local_cls_norm: bool = False
+    fsdp: Callable = partial(fsdp_wrapper, axis_name="dp")
     
     def setup(self):
         norm_layer_cls = norm_layer_dict[self.norm_layer]
         self.num_features = self.embed_dim
         
-        self.patch_embed = PatchEmbed(
+        self.patch_embed = self.fsdp(PatchEmbed)(
             img_size=self.img_size,
             patch_size=self.patch_size,
             embed_dim=self.embed_dim,
@@ -124,7 +125,7 @@ class DinoVisionTransformer(nn.Module):
         ffn_layer_cls = ffn_layer_dict[self.ffn_layer]
         ffn_ratio_sequence = [self.ffn_ratio] * self.n_blocks
         self.blocks = [
-            SelfAttentionBlock(
+            self.fsdp(SelfAttentionBlock)(
                 dim=self.embed_dim,
                 num_heads=self.num_heads,
                 ffn_ratio=ffn_ratio_sequence[i],
