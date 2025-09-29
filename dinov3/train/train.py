@@ -345,9 +345,7 @@ def do_train(config, model, resume=False):
         start_iter=0,
     )
     fake_batch = next(iter(data_loader))
-    # import IPython; IPython.embed()
 
-    
     # batch_pspec = {
     #     "collated_global_crops": P("dp", None, None, None),  # shard only batch dim
     #     "collated_local_crops": P("dp", None, None, None),
@@ -391,7 +389,6 @@ def do_train(config, model, resume=False):
     ckpt_dir = Path(config.train.output_dir, "ckpt").expanduser()
     ckpt_dir.mkdir(parents=True, exist_ok=True)
 
-    # import IPython; IPython.embed()
     def init_dp(rng, inputs, model):
         init_rng, rng = jax.random.split(rng)
         return model.init(init_rng, inputs, teacher_temp=.7, iteration=0, init_phase=True) # somehow state
@@ -420,7 +417,6 @@ def do_train(config, model, resume=False):
             fake_batch,
         )
     )
-    # import IPython; IPython.embed()
 
     init_fsdp = jax.jit(
         jax.shard_map(
@@ -456,7 +452,6 @@ def do_train(config, model, resume=False):
     }
 
     optimizer_state = optimizer.init(student_params)
-    # import IPython; IPython.embed()
 
     if config.multidistillation.enabled:
         register_dont_save_hooks(
@@ -500,7 +495,6 @@ def do_train(config, model, resume=False):
     # next(iter(data_loader))
     rngs={"dropout": jax.random.PRNGKey(1), "drop_path": jax.random.PRNGKey(2)}
 
-    # import IPython; IPython.embed()
 
     # def temp(_, data, _1, _2, _3, _4):
     #     for k, v in data.items():
@@ -543,7 +537,8 @@ def do_train(config, model, resume=False):
     apply_fsdp(params_fsdp, fake_batch)
 
     
-    # import IPython; IPython.embed()
+    # raise Exception()
+    import IPython; IPython.embed()
     fsdp_state = TrainState(
         step=start_iter,
         apply_fn=...,
@@ -555,18 +550,17 @@ def do_train(config, model, resume=False):
         }
     )
 
-
-
-    train_loss, metrics_dict = model.apply(
-        params_fsdp, 
-        data, 
-        teacher_temp=teacher_temp, 
-        iteration=it, 
-        rngs={
-            "dropout": jax.random.PRNGKey(1), 
-            "drop_path": jax.random.PRNGKey(2)
-        }
-    )
+    import IPython; IPython.embed()
+    # train_loss, metrics_dict = model.apply(
+    #     params_fsdp, 
+    #     data, 
+    #     teacher_temp=teacher_temp, 
+    #     iteration=it, 
+    #     rngs={
+    #         "dropout": jax.random.PRNGKey(1), 
+    #         "drop_path": jax.random.PRNGKey(2)
+    #     }
+    # )
 
 
     # student = model.student
@@ -637,7 +631,7 @@ def do_train(config, model, resume=False):
         teacher_temp = teacher_temp_schedule[it]
         last_layer_lr = last_layer_lr_schedule[it]
 
-        # import IPython; IPython.embed()
+        import IPython; IPython.embed()
         train_loss, metrics_dict = model.apply(params_fsdp, data, teacher_temp=teacher_temp, iteration=it, rngs={
             "dropout": jax.random.PRNGKey(1), "drop_path": jax.random.PRNGKey(2)
         })
@@ -647,7 +641,7 @@ def do_train(config, model, resume=False):
             print("to clip grads")
 
 
-        # import IPython; IPython.embed()
+        import IPython; IPython.embed()
 
         # reduce loss & metric logs
         total_loss_all_ranks = ...
