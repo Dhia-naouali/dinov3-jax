@@ -132,7 +132,7 @@ def fuse_params_groups(all_params_groups, keys=("lr_multiplier", "wd_multiplier"
       counter = {"group": 0}
       def _next():
           counter["group"] += 1
-          return f"{root_name}_group_{counter["group"]}"
+          return f"{root_name}_group_{counter['group']}"
       return _next
     next_id = auto_counter()
     dd = defaultdict(next_id)
