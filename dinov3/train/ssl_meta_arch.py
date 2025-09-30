@@ -353,7 +353,9 @@ class SSLMetaArch(nn.Module):
             masks_weight=masks_weight,
             iteration=iteration,
         )
-        return loss_accumulator
+
+        loss_accumulator = jax.lax.pmean(loss_accumulator, axis_name="dp")
+        return loss_accumulator.squeeze()
         return loss_accumulator, metrics_dict | loss_dict
     
 
@@ -569,8 +571,10 @@ class SSLMetaArch(nn.Module):
         )
 
     def get_params_groups(self, params): # student : (backbone, dino_head, ibot_head)
-        params = {k.replace("student_", ""): v for k, v in params.items() if "student_" in k}
+        # params = {k.replace("student_", ""): v for k, v in params.items() if "student_" in k}
         # params = flatten_dict(params, sep=".")
+        params = {k: v for k, v in params.items() if "student_" in k}
+
 
         all_params_groups = {}
 
