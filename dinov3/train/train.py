@@ -88,12 +88,18 @@ def build_optimizer(
             param_groups[f"student_{k}"] = param_groups.pop(k)
         print(param_groups.keys())
 
+    lr_schedule = jnp.array(lr_schedule.gen())
+    wd_schedule = jnp.array(wd_schedule.gen())
+    last_layer_lr_schedule = jnp.array(last_layer_lr_schedule.gen())
+    print()
+
 
     optimizers = optax.multi_transform(
         {
             k: optax.adamw(
-                learning_rate=lambda it: v.lr_multiplier * (last_layer_lr_schedule if v.is_last_layer else lr_schedule)[it],
-                weight_decay=lambda it: v.wd_multiplier * wd_schedule[it],
+                learning_rate=lambda it: v.lr_multiplier * (last_layer_lr_schedule[it] if v.is_last_layer else lr_schedule[it]),
+                # weight_decay=lambda it: v.wd_multiplier * wd_schedule[it],
+                weight_decay=v.wd_multiplier,
                 b1=config.optim.adamw_beta1,
                 b2=config.optim.adamw_beta2
             ) for k, v in groups.items()
@@ -332,11 +338,11 @@ def main(argv=None):
         return do_test(config, model, f"manual_{iteration}")
     do_train(config, model, resume=not args.no_resume)
 
-
-
+class TrainState(train_state.TrainState):
+    rngs: Any = None
+    
 def do_train(config, model, resume=False):
-    class TrainState(train_state.TrainState):
-        rngs: Any = None
+
 
 
     data_loader = build_multi_resolution_data_loader_from_cfg(
@@ -345,18 +351,6 @@ def do_train(config, model, resume=False):
         start_iter=0,
     )
     fake_batch = next(iter(data_loader))
-
-    # batch_pspec = {
-    #     "collated_global_crops": P("dp", None, None, None),  # shard only batch dim
-    #     "collated_local_crops": P("dp", None, None, None),
-    #     "collated_masks": P("dp", None),
-    #     "mask_indices_list": P("dp"),
-    #     "masks_weight": P("dp"),
-    #     "n_masked_patches": P("dp"),
-    #     "upperbound": P(),  # not batch-dependent
-    # }
-
-
 
     batch_pspec = {
         'collated_global_crops': P("dp"),
@@ -368,19 +362,6 @@ def do_train(config, model, resume=False):
         "upperbound": P(),
         # "global_batch_size": P(),
     }
-
-
-
-    # batch_pspec = {
-    #     "collated_global_crops": P(),
-    #     "collated_local_crops": P(),
-    #     "collated_masks": P(),
-    #     "mask_indices_list": P(),
-    #     "masks_weight": P(),
-    #     "n_masked_patches": P(),
-    #     "upperbound": P(),
-    #     # "global_batch_size": P(),
-    # }
 
 
     main_rng = jax.random.PRNGKey(config.train.seed)
@@ -432,6 +413,13 @@ def do_train(config, model, resume=False):
     # init_params = model.init(key, fake_batch, teacher_temp=.7, iteration=0, init_phase=True)
 
     param_groups = model.get_params_groups(params_fsdp["params"])
+    student_params = {
+        k: v for k, v in params_fsdp["params"].items() if "student_" in k
+    }
+    print("student_params", student_params.keys())
+    print("param_group", param_groups.keys())
+    # assert set(student_params.keys()) == set(param_groups.keys()), "param_groups must match student_params keys"
+
     (
         lr_schedule,
         wd_schedule,
@@ -439,6 +427,7 @@ def do_train(config, model, resume=False):
         teacher_temp_schedule,
         last_layer_lr_schedule
     ) = build_schedulers(config)
+    # import IPython; IPython.embed()
     optimizer = build_optimizer(
         config, 
         param_groups, 
@@ -451,7 +440,17 @@ def do_train(config, model, resume=False):
         if "student_" in k
     }
 
-    optimizer_state = optimizer.init(student_params)
+    rngs={"dropout": jax.random.PRNGKey(1), "drop_path": jax.random.PRNGKey(2)}
+
+    train_state = TrainState.create(
+        apply_fn=model.apply,
+        params=student_params,
+        tx=optimizer,
+        rngs=rngs
+    )
+    train_state_specs = nn.get_partition_spec(train_state)
+
+    # optimizer_state = optimizer.init(student_params)
 
     if config.multidistillation.enabled:
         register_dont_save_hooks(
@@ -493,75 +492,80 @@ def do_train(config, model, resume=False):
     gc.collect()
 
     # next(iter(data_loader))
-    rngs={"dropout": jax.random.PRNGKey(1), "drop_path": jax.random.PRNGKey(2)}
 
 
-    # def temp(_, data, _1, _2, _3, _4):
-    #     for k, v in data.items():
-    #         if isinstance(v, jnp.ndarray):
-    #             print(k, v.shape, v.sharding)
-    #         else:
-    #             print(k, v)
+    def train_step(
+            params_fsdp,
+            state,
+            batch,
+            teacher_temp,
+            iteration,
+            root_rngs,
+            axis_name="dp"
+    ):
+        student_params = {k: v for k, v in params_fsdp.items() if "student_" in k}
+        print(f"entry: {params_fsdp.keys()}")
+        print(f"entry student: {student_params.keys()}")
+        axis_idx = jax.lax.axis_index(axis_name)
+        rngs = {k: jax.random.fold_in(v, axis_idx) for k, v in root_rngs.items()}
+        def loss_fn(student_params):
+            temp_params = dict(params_fsdp)
+            temp_params = {
+                k: student_params[k] if "student_" in k else v
+                for k, v in temp_params.items()
+            }
+            loss = state.apply_fn(temp_params, batch, teacher_temp=teacher_temp, iteration=iteration, rngs=rngs)
+            return loss
 
-    # apply_fsdp = jax.jit(
-    #     jax.shard_map(
-    #         # model.apply,
-    #         temp,
-    #         mesh=mesh,
-    #         in_specs=(
-    #             param_specs, 
-    #             P(), # data to DP shard
-    #             P(), # teacher_temp,
-    #             P(), # iteration
-    #             P(), # rng thingy
-    #         ),
-    #         out_specs=P("dp"), # loss, to reduce in model.apply
-    #         # re return metrics dict
-    #     ),
-    #     donate_argnums=(0, 1, 4)
-    # )
+        loss, grads = jax.value_and_grad(loss_fn)(student_params)
+        print(f"grads: {grads.keys()}")
+        
+        # grads norm
 
-    apply_fsdp = jax.jit(
+        # grads = sync_grads(grads)
+        # plain arrays for optimizer
+        student_params_plain = jax.tree_util.tree_map(
+            lambda x: x.value if isinstance(x, nn.Partitioned) else x, student_params
+        )
+
+        # partitioned params for forward/backward
+        student_params_partitioned = student_params
+        optimizer_state, updates = state.tx.update(grads, optimizer_state, student_params_plain)
+        student_params_plain = optax.apply_updates(student_params_plain, updates)
+        student_params_partitioned = jax.tree_map(
+            lambda x, y: nn.Partitioned(x, mesh=x.mesh if isinstance(x, nn.Partitioned) else mesh, names=x.names if isinstance(x, nn.Partitioned) else ("dp",)),
+            student_params_plain,
+            student_params_partitioned
+        )
+        raise Exception()
+        print(f"params: {params.keys()}")
+        print(f"student_params: {student_params.keys()}")
+        print(f"params_params: {params['params'].keys()}")
+        return params, optimizer_state, loss
+
+
+    # optimizer_specs = nn.get_partition_spec(optimizer_state)
+
+
+    train_step_fsdp = jax.jit(
         jax.shard_map(
-            model.apply,
+            train_step,
             mesh=mesh,
             in_specs=(
                 param_specs,
-                batch_pspec, # data to DP shard
+                nn.get_partition_spec(train_state),
+                batch_pspec,
+                P(), # teacher_temp
+                P(), # iteration
+                P(), # rngs
             ),
-            out_specs=P("dp"), # loss, to reduce in model.apply
-            # check_vma=False# re return metrics dict
+            out_specs=(param_specs, P())
         ),
-        donate_argnums=(0,)
-    )
-    apply_fsdp(params_fsdp, fake_batch)
-
-    
-    # raise Exception()
-    import IPython; IPython.embed()
-    fsdp_state = TrainState(
-        step=start_iter,
-        apply_fn=...,
-        params=params_fsdp,
-        tx=optimizer,
-        opt_state=optimizer_state,
-        rngs={
-            "dropout": dropout_rng, "drop_path": drop_path_rng
-        }
+        donate_argnums=(0, 1, 2)
     )
 
+    train_step_fsdp(params_fsdp, train_state, fake_batch, teacher_temp_schedule[12], 1, rngs)
     import IPython; IPython.embed()
-    # train_loss, metrics_dict = model.apply(
-    #     params_fsdp, 
-    #     data, 
-    #     teacher_temp=teacher_temp, 
-    #     iteration=it, 
-    #     rngs={
-    #         "dropout": jax.random.PRNGKey(1), 
-    #         "drop_path": jax.random.PRNGKey(2)
-    #     }
-    # )
-
 
     # student = model.student
     iteration = start_iter
@@ -580,7 +584,8 @@ def do_train(config, model, resume=False):
     def train_step(state, batch):
         # rng, _ = jax.random.split(state.rngs)
         loss, grads = jax.value_and_grad(state.apply_fn)(
-            state.params, 
+            params_fsdp,
+            state, 
             batch, 
             teacher_temp=.7, 
             iteration=0,

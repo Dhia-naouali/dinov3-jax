@@ -38,6 +38,9 @@ class CosineScheduler:
         
         assert len(self.schedule) == self.total_iters
     
+    def gen(self):
+        return self.schedule
+
     def __getitem__(self, itr):
         if itr >= self.total_iters:
             return self.final_value
@@ -65,5 +68,8 @@ class linear_warmup_cosine_decay:
         constant = np.full((remaining_iterations,), fill_value=end)
         self.schedule = np.concatenate([linear, cosine, constant])
 
-    def __call__(self, idx):
+    def gen(self):
+        return self.schedule
+
+    def __getitem__(self, idx):
         return self.schedule[idx]
