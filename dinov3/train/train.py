@@ -520,7 +520,7 @@ def do_train(config, model, resume=False):
 
         # partitioned params for forward/backward
         student_params_partitioned = student_params
-        optimizer_state, updates = optimizer.update(grads, optimizer_state, student_params_plain)
+        updates, optimizer_state = optimizer.update(grads, optimizer_state, student_params_plain)
         student_params_plain = optax.apply_updates(student_params_plain, updates)
         student_params_partitioned = jax.tree_map(
             lambda x, y: nn.Partitioned(x, mesh=x.mesh if isinstance(x, nn.Partitioned) else mesh, names=x.names if isinstance(x, nn.Partitioned) else ("dp",)),
@@ -806,4 +806,5 @@ def build_data_loader_from_cfg(
     
 
 if __name__ == "__main__":
+
     main()
