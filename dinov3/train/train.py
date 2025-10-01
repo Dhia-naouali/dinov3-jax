@@ -512,22 +512,10 @@ def do_train(config, model, resume=False):
         
         # grads norm
 
-        # grads = sync_grads(grads)
-        # plain arrays for optimizer
-        student_params_plain = jax.tree_util.tree_map(
-            lambda x: x.value if isinstance(x, nn.Partitioned) else x, student_params
-        )
-
-        # partitioned params for forward/backward
-        student_params_partitioned = student_params
-        updates, optimizer_state = optimizer.update(grads, optimizer_state, student_params_plain)
-        student_params_plain = optax.apply_updates(student_params_plain, updates)
-        student_params_partitioned = jax.tree_map(
-            lambda x, y: nn.Partitioned(x, mesh=x.mesh if isinstance(x, nn.Partitioned) else mesh, names=x.names if isinstance(x, nn.Partitioned) else ("dp",)),
-            student_params_plain,
-            student_params_partitioned
-        )
-        raise Exception()
+        grads = sync_grads(grads)
+        updates, optimizer_state = optimizer.update(grads, optimizer_state, student_params)
+        student_params = optax.apply_updates(student_params, updates)
+        # raise Exception()
         print(f"params: {params.keys()}")
         print(f"student_params: {student_params.keys()}")
         print(f"params_params: {params['params'].keys()}")
@@ -554,7 +542,8 @@ def do_train(config, model, resume=False):
         donate_argnums=(0, 1, 2)
     )
 
-    train_step_fsdp(params_fsdp, fake_batch, optimizer_state, teacher_temp_schedule[12], 1, rngs)
+    _, _, x = train_step_fsdp(params_fsdp, fake_batch, optimizer_state, teacher_temp_schedule[12], 1, rngs)
+    print(x)
     import IPython; IPython.embed()
 
     # student = model.student
