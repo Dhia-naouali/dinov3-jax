@@ -470,7 +470,32 @@ def do_train(config, model, resume=False):
     )
 
     params_fsdp = init_fsdp(init_rng, init_batch)
+    ema_params_fsdp = {
+        "params": {
+            k: jax.tree_util.tree_map(
+                lambda x: x.copy(),
+                v
+            ) for k, v in params_fsdp["params"].items()
+            if k.startswith("student_") or k.startswith("teacher_")
+        }
+    }
 
+    ema_param_specs = {
+        "params": {
+            k: v for k, v in param_specs["params"].items()
+            if k.startswith("student_") or k.startswith("teacher_")
+        }
+    }
+    # import IPython; IPython.embed()
+
+    update_ema = jax.jit(
+        jax.shard_map(
+            model.update_ema(),
+            mesh=mesh,
+            in_specs=(ema_param_specs, param_specs, P()),
+            out_specs=ema_param_specs
+        )
+    )
 
 
     # schedules, optimizer build & init
@@ -684,7 +709,7 @@ def do_train(config, model, resume=False):
         else:
             consecutive_nan_count = 0
 
-        model.update_ema(mom)
+        ema_params_fsdp = update_ema(ema_params_fsdp, params_fsdp, mom)
 
         if (
             config.gram.use_loss
@@ -702,7 +727,7 @@ def do_train(config, model, resume=False):
         metric_logger.update(wd=wd)
         metric_logger.update(mom=mom)
         metric_logger.update(last_layer_lr=last_layer_lr)
-        metric_logger.update(total_loss=total_loss, **metrics_dict)
+        # metric_logger.update(total_loss=total_loss, **metrics_dict)
 
         if (
             config.evaluation.eval_period_iterations > 0 and (iteration + 1) % config.evaluation.eval_period_iterations == 0
@@ -729,14 +754,6 @@ def do_train(config, model, resume=False):
     # print("all done !")
     return {k: meter.global_avg for k, meter in metric_logger.meters.items()}
 
-
-    
-
-
-
-
-def apply_optim_scheduler(optimizer, lr, wd, last_layer_lr):
-    ...
 
 
 
