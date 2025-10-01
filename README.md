@@ -8,6 +8,34 @@
 
 This repository contains a Flax/JAX implementation of DINOv3 ([paper](https://arxiv.org/abs/2508.10104), [original repo](https://github.com/facebookresearch/dinov3)), originally developed in PyTorch by [Meta AI](https://github.com/facebookresearch)
 
+
+<h2> Overview</h2>
+this a re-implementation of Dinov3 by Meta, suing their original [repo](https://github.com/facebookresearch/dinov3) in PyTorch mainly to have a better benchmark (using JAX: trading principles for optimization) and for learning puposes: SSL, distributed training bleeding edge training tricks and techniques ...
+
+
+<h2> where it differs from the original repo</h2>
+due to the differences in how PyTorch and JAX/flax are designed few design differences occured in this repo
+
+<h4> distributed computation & communication</h4>
+in a distributed setup Pytorch assigns a single process per device with a global process index for communication & orchestration, JAX on the other hand assigns a single process per host which will manage multiple devices using local communication, butter observed in multi-host multi-devices setups but in our case it's most significant in how data reaches devices instead of each device using a different set of workers to fetch it's chunk of the batch, using JAX each host will fetch / collect the whole data then shard / distribute it to it's devices
+
+
+<h4> Activations checkpointing</h4>
+the reference implementation used explicit checkpointing in two fashions: global & selective
+in our implementation we decided to not enforce activation checkpoining and instead rely on the underlying compiler (XLA) since it has a global view of the computation graph and a set of heuristic on what to store / save and what to recompute during grads computation in the backward passes (adding a stricter checkpointing option would be just wrapping target modules in jax.checkpoint/jax.remat) 
+
+<h4> FSDP</h4>
+compared to the quite mature and (mostly) stable PyTorch implementation, JAXon the other hand doesn't have references, docs or materials on explicit FSDP implementations other than some heuristics and recommendations on how to shard params (except for a single docs page whispering FSDP in lower case and a legendary uni professor from amesterdam providing a reference implementation for an older version of JAX)
+to achieve a PyTorch-like FSDP implementation we built an FSDP wrapper to be used around flax modules which will intercept computation to collect params and later on reshard both params and activations after the internal op(s)
+
+
+<h4> Data loading</h4>
+we used PyTorch's data loaders without pinned memory: JAX asynch dispatcher will take care of the equivalent, no multiple workers (`num_workers`) since it's a single process run by the host that will later on shard / distribute the batch on it's devices in a data parallel fashion
+
+
+<h4> other minor tweaks</h4>
+few other changes were introduced to avoid conflicts, function names where kept as similar as possible (if kept in the first place)
+
 <br>
 <br>
 <br>
