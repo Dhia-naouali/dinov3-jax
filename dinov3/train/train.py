@@ -340,8 +340,20 @@ def main(argv=None):
 
 
 def do_train(config, model, resume=False):
-    class TrainState(train_state.TrainState):
-        rngs: Any = None
+
+    # mesh and rngs
+    mesh = jax.make_mesh(
+        (jax.device_count(),),
+        ("dp",)
+    )
+
+    main_rng = jax.random.PRNGKey(config.train.seed)
+    main_rng, init_rng, dropout_rng, drop_path_rng = jax.random.split(main_rng, 4)
+
+
+    # no process subgroups
+    ckpt_dir = Path(config.train.output_dir, "ckpt").expanduser()
+    ckpt_dir.mkdir(parents=True, exist_ok=True)
 
 
     data_loader = build_multi_resolution_data_loader_from_cfg(
@@ -349,8 +361,61 @@ def do_train(config, model, resume=False):
         model=model,
         start_iter=0,
     )
-    fake_batch = next(iter(data_loader))
 
+
+
+
+
+
+
+
+    #########################################################
+    #########################################################
+    #########################################################
+    #########################################################
+    #########################################################
+
+
+
+
+    metrics_file = os.path.join(config.train.output_dir, "training_metrics.json")
+    metric_logger = MetricLogger(delimiter="  ", output_file=metrics_file)
+
+    c = 0
+    
+    for data in metric_logger.log_every(
+        data_loader, print_freq=10,
+        header="Training",
+        n_iterations=100,
+        start_iteration=0
+    ):
+        for k, v in data.items():
+            if isinstance(v, jnp.ndarray):
+                print(k, v.shape)
+            else:
+                print(k, v)
+        if c > 12:
+            raise Exception()
+        c += 1
+
+
+
+
+
+
+    #########################################################
+    #########################################################
+    #########################################################
+    #########################################################
+
+
+
+
+
+
+
+    # inits, specs and sharding
+    init_batch = next(iter(data_loader))
     batch_pspec = {
         'collated_global_crops': P("dp"),
         'collated_local_crops': P("dp"),
@@ -362,27 +427,18 @@ def do_train(config, model, resume=False):
         # "global_batch_size": P(),
     }
 
-
-    main_rng = jax.random.PRNGKey(config.train.seed)
-    main_rng, init_rng, dropout_rng, drop_path_rng = jax.random.split(main_rng, 4)
-    # no process subgroups
-    ckpt_dir = Path(config.train.output_dir, "ckpt").expanduser()
-    ckpt_dir.mkdir(parents=True, exist_ok=True)
-
     def init_dp(rng, inputs, model):
         init_rng, rng = jax.random.split(rng)
         return model.init(init_rng, inputs, teacher_temp=.7, iteration=0, init_phase=True) # somehow state
 
-
-    mesh = jax.make_mesh(
-        (len(jax.devices()),),
-        ("dp",)
-    )
     def shard_batch_item(item, spec):
         return jax.device_put(item, jax.sharding.NamedSharding(mesh, spec))
 
-    fake_batch = jax.tree_util.tree_map(shard_batch_item, fake_batch, batch_pspec)
-
+    init_batch = jax.tree_util.tree_map(
+        shard_batch_item, 
+        init_batch, 
+        batch_pspec
+    )
 
     param_specs = nn.get_partition_spec(
         jax.eval_shape(
@@ -394,7 +450,7 @@ def do_train(config, model, resume=False):
                 check_vma=False
             ),
             init_rng,
-            fake_batch,
+            init_batch,
         )
     )
 
@@ -407,17 +463,15 @@ def do_train(config, model, resume=False):
         )
     )
 
-    params_fsdp = init_fsdp(init_rng, fake_batch)
+    params_fsdp = init_fsdp(init_rng, init_batch)
 
-    # init_params = model.init(key, fake_batch, teacher_temp=.7, iteration=0, init_phase=True)
 
+
+    # schedules, optimizer build & init
     param_groups = model.get_params_groups(params_fsdp["params"])
     student_params = {
         k: v for k, v in params_fsdp["params"].items() if "student_" in k
     }
-    print("student_params", student_params.keys())
-    print("param_group", param_groups.keys())
-    # assert set(student_params.keys()) == set(param_groups.keys()), "param_groups must match student_params keys"
 
     (
         lr_schedule,
@@ -426,7 +480,6 @@ def do_train(config, model, resume=False):
         teacher_temp_schedule,
         last_layer_lr_schedule
     ) = build_schedulers(config)
-    # import IPython; IPython.embed()
     optimizer = build_optimizer(
         config, 
         param_groups, 
@@ -440,7 +493,11 @@ def do_train(config, model, resume=False):
     }
 
     optimizer_state = optimizer.init(student_params)
+    optimizer_specs = nn.get_partition_spec(optimizer_state)
 
+
+
+    # the part m undeniably delaying
     if config.multidistillation.enabled:
         register_dont_save_hooks(
             model,
@@ -474,15 +531,14 @@ def do_train(config, model, resume=False):
     global_batch_size = config.train.batch_size_per_gpu * jax.device_count()
 
 
+
     logger.info(f"Starting training from iteration {start_iter}")
     metrics_file = os.path.join(config.train.output_dir, "training_metrics.json")
     metric_logger = MetricLogger(delimiter="  ", output_file=metrics_file)
-    # gc.disable()
+    gc.disable()
     gc.collect()
 
-    # next(iter(data_loader))
-    rngs={"dropout": jax.random.PRNGKey(1), "drop_path": jax.random.PRNGKey(2)}
-
+    rngs={"dropout": dropout_rng, "drop_path": drop_path_rng}
 
     def train_step(
             params,
@@ -493,6 +549,8 @@ def do_train(config, model, resume=False):
             root_rngs,
             axis_name="dp"
     ):
+        # keeping prints for now, one time thingy anyway
+
         student_params = {k: v for k, v in params["params"].items() if "student_" in k}
         print(f"entry: {params['params'].keys()}")
         print(f"entry student: {student_params.keys()}")
@@ -515,14 +573,10 @@ def do_train(config, model, resume=False):
         grads = sync_grads(grads)
         updates, optimizer_state = optimizer.update(grads, optimizer_state, student_params)
         student_params = optax.apply_updates(student_params, updates)
-        # raise Exception()
         print(f"params: {params.keys()}")
         print(f"student_params: {student_params.keys()}")
         print(f"params_params: {params['params'].keys()}")
         return params, optimizer_state, loss
-
-
-    optimizer_specs = nn.get_partition_spec(optimizer_state)
 
 
     train_step_fsdp = jax.jit(
@@ -542,9 +596,9 @@ def do_train(config, model, resume=False):
         donate_argnums=(0, 1, 2)
     )
 
-    _, _, x = train_step_fsdp(params_fsdp, fake_batch, optimizer_state, teacher_temp_schedule[12], 1, rngs)
-    print(x)
-    import IPython; IPython.embed()
+    # _, _, x = train_step_fsdp(params_fsdp, init_batch, optimizer_state, teacher_temp_schedule[12], 1, rngs)
+    # print(x)
+    # import IPython; IPython.embed()
 
     # student = model.student
     iteration = start_iter
@@ -558,33 +612,6 @@ def do_train(config, model, resume=False):
     ):
         num_gram_updates = math.ceil((start_iter + 1 - config.gram.it_first_update)  / config.gram.update_frequency)
         logger.info(f"Gram was updated {num_gram_updates} times before iteration {start_iter}")
-
-
-    def train_step(state, batch):
-        # rng, _ = jax.random.split(state.rngs)
-        loss, grads = jax.value_and_grad(state.apply_fn)(
-            state.params, 
-            batch, 
-            teacher_temp=.7, 
-            iteration=0,
-            rngs=state.rngs,
-        )
-        grads = sync_grads(grads)
-
-        new_state = state.apply_gradients(grads=grads)
-        loss = jax.lax.pmean(loss, axis_name="dp")
-        return new_state, loss
-
-
-    train_step_fsdp = jax.jit(
-        jax.shard_map(
-            train_step,
-            mesh=mesh,
-            in_specs=...,
-            out_specs=...
-        )
-    )
-
 
 
     consecutive_nan_count = 0
@@ -614,39 +641,53 @@ def do_train(config, model, resume=False):
         teacher_temp = teacher_temp_schedule[it]
         last_layer_lr = last_layer_lr_schedule[it]
 
-        import IPython; IPython.embed()
-        train_loss, metrics_dict = model.apply(params_fsdp, data, teacher_temp=teacher_temp, iteration=it, rngs={
-            "dropout": jax.random.PRNGKey(1), "drop_path": jax.random.PRNGKey(2)
-        })
 
+        # add metrics log / dict
+        for k, v in data.items():
+            if isinstance(v, jnp.ndarray):
+                print(k, v.shape)
+            else:
+                print(k, v)
+        if it > 12:
+            raise Exception()
+        params_fsdp, optimizer_state, total_loss = train_step_fsdp(params_fsdp, data, optimizer_state, teacher_temp_schedule[it], it, rngs)
+
+        print(f"params: {params_fsdp['params'].keys()}")
+        print(f"optimizer: {optimizer_state.keys()}")
 
         if config.optim.clip_grad:
             print("to clip grads")
 
 
-        import IPython; IPython.embed()
-
-        # reduce loss & metric logs
-        total_loss_all_ranks = ...
+        # # reduce loss & metric logs
+        # total_loss_all_ranks = ...
 
 
-        if total_loss_all_ranks.isnan().any():
-            ...
-        else:
-            consecutive_nan_count = 0
+        # if jnp.isnan(total_loss).any():
+        #     consecutive_nan_count += 1
+        #     # logger.warning("nan loss detected on ranks: unkown") # that's pure rage bating
+        #     logger.warning(f"consecutive NaNs: {consecutive_nan_count}")
+        #     # metric_dict thingy
 
+        #     logger.warning(f"All reduced metrics: {...}")
+        #     if consecutive_nan_count > 2 and not config.multidistillation.enabled:
+        #         msg = "Too many consecutive nans detected in loss, avorting ..."
+        #         logger.error(msg)
+        #         raise RuntimeError(msg)
+        # else:
+        #     consecutive_nan_count = 0
 
-        optimizer.apply(...)
-        model.update_ema(mom)
+        # model.update_ema(mom)
 
-
+        iteration += 1
         # apply_optim_scheduler(optimizer, lr, wd, last_layer_lr)
         # zero grad
 
         # total_loss, metrics_dict = model.forward_backward(data, teacher_temp, iteration=it)
 
-        if config.optim.clip_grad:
-            ...
+        # if config.optim.clip_grad:
+        #     ...
+    print("all done !")
 
 
     

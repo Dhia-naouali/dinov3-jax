@@ -117,8 +117,10 @@ class MetricLogger(object):
 
     
     def dump_in_output_file(self, iteration, iter_time, data_time):
-        if self.output_file is None or not distributed.is_main_process():
-            return
+        # the process thingy won't be used in this (made for single-host multi-devices)
+        # but in case someone is expanding this, there is my contribution :')
+        if self.output_file is None or not jax.process_index():
+            return 
 
         dict_to_dump = dict(
             iteration=iteration,

@@ -39,7 +39,7 @@ ibot:
   head_nlayers: 3
   head_hidden_dim: 128 # temp, 2048
 train:
-  batch_size_per_gpu: 64
+  batch_size_per_gpu: 8 # temp, 64
   dataset_path: ImageNet:split=TRAIN
   output_dir: /checkpoint/dino/qas/rope/vitl16_im1k
   saveckp_freq: 20
