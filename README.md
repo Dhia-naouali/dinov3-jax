@@ -10,7 +10,7 @@ This repository contains a Flax/JAX implementation of DINOv3 ([paper](https://ar
 
 
 <h2> Overview</h2>
-this a re-implementation of Dinov3 by Meta, suing their original [repo](https://github.com/facebookresearch/dinov3) in PyTorch mainly to have a better benchmark (using JAX: trading principles for optimization) and for learning puposes: SSL, distributed training bleeding edge training tricks and techniques ...
+this a re-implementation of Dinov3 by Meta, suing their original <a href="https://github.com/facebookresearch/dinov3">repo</a> in PyTorch mainly to have a better benchmark (using JAX: trading principles for optimization) and for learning puposes: SSL, distributed training bleeding edge training tricks and techniques ...
 
 
 <h2> where it differs from the original repo</h2>
