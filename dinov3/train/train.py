@@ -355,7 +355,7 @@ def do_train(config, model, resume=False):
     ckpt_dir = Path(config.train.output_dir, "ckpt").expanduser()
     ckpt_dir.mkdir(parents=True, exist_ok=True)
 
-
+    global_batch_size = config.train.batch_size_per_gpu * jax.device_count()
     data_loader = build_multi_resolution_data_loader_from_cfg(
         config=config,
         model=model,
@@ -378,25 +378,30 @@ def do_train(config, model, resume=False):
 
 
 
-    metrics_file = os.path.join(config.train.output_dir, "training_metrics.json")
-    metric_logger = MetricLogger(delimiter="  ", output_file=metrics_file)
+    # metrics_file = os.path.join(config.train.output_dir, "training_metrics.json")
+    # metric_logger = MetricLogger(delimiter="  ", output_file=metrics_file)
 
-    c = 0
-    
-    for data in metric_logger.log_every(
-        data_loader, print_freq=10,
-        header="Training",
-        n_iterations=100,
-        start_iteration=0
-    ):
-        for k, v in data.items():
-            if isinstance(v, jnp.ndarray):
-                print(k, v.shape)
-            else:
-                print(k, v)
-        if c > 12:
-            raise Exception()
-        c += 1
+    # c = 0
+    # ref = None
+    # for data in metric_logger.log_every(
+    #     data_loader, print_freq=10,
+    #     header="Training",
+    #     n_iterations=100,
+    #     start_iteration=0
+    # ):
+    #     if ref is None:
+    #         ref = set(list(data.keys()))
+    #     else:
+    #         if ref != set(list(data.keys())):
+    #             raise Exception("batch data changed")
+    #     for k, v in data.items():
+    #         if isinstance(v, jnp.ndarray):
+    #             print(k, v.shape)
+    #         else:
+    #             print(k, v)
+    #     if c > 12:
+    #         raise Exception()
+    #     c += 1
 
 
 
@@ -416,6 +421,7 @@ def do_train(config, model, resume=False):
 
     # inits, specs and sharding
     init_batch = next(iter(data_loader))
+    init_batch["global_batch_size"] = global_batch_size
     batch_pspec = {
         'collated_global_crops': P("dp"),
         'collated_local_crops': P("dp"),
@@ -424,7 +430,7 @@ def do_train(config, model, resume=False):
         "n_masked_patches": P(),
         "masks_weight": P(),
         "upperbound": P(),
-        # "global_batch_size": P(),
+        "global_batch_size": P(),
     }
 
     def init_dp(rng, inputs, model):
@@ -527,8 +533,6 @@ def do_train(config, model, resume=False):
     # else:
     #     # * GPUs per host * num_hosts
     #     global_batch_size = config.train.batch_size_per_gpu * distributed.get_world_size()
-    
-    global_batch_size = config.train.batch_size_per_gpu * jax.device_count()
 
 
 
@@ -596,9 +600,6 @@ def do_train(config, model, resume=False):
         donate_argnums=(0, 1, 2)
     )
 
-    # _, _, x = train_step_fsdp(params_fsdp, init_batch, optimizer_state, teacher_temp_schedule[12], 1, rngs)
-    # print(x)
-    # import IPython; IPython.embed()
 
     # student = model.student
     iteration = start_iter
@@ -650,52 +651,86 @@ def do_train(config, model, resume=False):
                 print(k, v)
         if it > 12:
             raise Exception()
+        
+
+        data = jax.tree_util.tree_map(
+            shard_batch_item, 
+            data, 
+            batch_pspec
+        )
+
+
         params_fsdp, optimizer_state, total_loss = train_step_fsdp(params_fsdp, data, optimizer_state, teacher_temp_schedule[it], it, rngs)
+        # all reduce metric_dict
 
         print(f"params: {params_fsdp['params'].keys()}")
-        print(f"optimizer: {optimizer_state.keys()}")
 
         if config.optim.clip_grad:
             print("to clip grads")
 
 
-        # # reduce loss & metric logs
-        # total_loss_all_ranks = ...
 
+        if jnp.isnan(total_loss).any():
+            consecutive_nan_count += 1
+            # logger.warning("nan loss detected on ranks: unkown") # that's pure rage bating
+            logger.warning(f"consecutive NaNs: {consecutive_nan_count}")
+            # metric_dict thingy
 
-        # if jnp.isnan(total_loss).any():
-        #     consecutive_nan_count += 1
-        #     # logger.warning("nan loss detected on ranks: unkown") # that's pure rage bating
-        #     logger.warning(f"consecutive NaNs: {consecutive_nan_count}")
-        #     # metric_dict thingy
+            logger.warning(f"All reduced metrics: {...}")
+            if consecutive_nan_count > 2 and not config.multidistillation.enabled:
+                msg = "Too many consecutive nans detected in loss, avorting ..."
+                logger.error(msg)
+                raise RuntimeError(msg)
+        else:
+            consecutive_nan_count = 0
 
-        #     logger.warning(f"All reduced metrics: {...}")
-        #     if consecutive_nan_count > 2 and not config.multidistillation.enabled:
-        #         msg = "Too many consecutive nans detected in loss, avorting ..."
-        #         logger.error(msg)
-        #         raise RuntimeError(msg)
-        # else:
-        #     consecutive_nan_count = 0
+        model.update_ema(mom)
 
-        # model.update_ema(mom)
+        if (
+            config.gram.use_loss
+            and model.gram_rep_update
+            and (it + 1) >= model.gram_init_first_update
+            and (it + 1) % model.gram_update_frequency == 0
+            and (config.gram.max_updates is None or num_gram_updates < config.gram.max_updates)
+        ):
+            logger.info(f"Updating Gram teacher from EMA teacher after iteration {it}")
+            model.update_gradm()
+            num_gram_updates += 1
+        
+
+        metric_logger.update(lr=lr)
+        metric_logger.update(wd=wd)
+        metric_logger.update(mom=mom)
+        metric_logger.update(last_layer_lr=last_layer_lr)
+        metric_logger.update(total_loss=total_loss, **metrics_dict)
+
+        if (
+            config.evaluation.eval_period_iterations > 0 and (iteration + 1) % config.evaluation.eval_period_iterations == 0
+        ):
+            do_test(config, model, f"training_{iteration}")
+
+        
+        if (iteration + 1) % config.checkpointing.period == 0:
+            save_checkpoint(
+                ckpt_dir / str(iteration),
+                iteration=iteration,
+                model=params_fsdp,
+                optimizer=optimizer_state,
+                overwrite=True,
+            )
+            if jax.process_index() == 0:
+                keep_last_n_checkpoints(ckpt_dir, config.checkpointing.max_to_keep)
+                if "keep_every" in config.checkpointing and (iteration + 1) % config.checkpointing.keep_every == 0:
+                    keep_checkpoint_copy(ckpt_dir / str(iteration))
 
         iteration += 1
-        # apply_optim_scheduler(optimizer, lr, wd, last_layer_lr)
-        # zero grad
 
-        # total_loss, metrics_dict = model.forward_backward(data, teacher_temp, iteration=it)
 
-        # if config.optim.clip_grad:
-        #     ...
-    print("all done !")
+    # print("all done !")
+    return {k: meter.global_avg for k, meter in metric_logger.meters.items()}
 
 
     
-    
-    OFFICIAL_EPOCH_LENGTH = config.train.OFFICIAL_EPOCH_LENGTH
-    max_iter = config.optim.epoch * OFFICIAL_EPOCH_LENGTH
-    if config.multidistillation.enabled:
-        raise
 
 
 
