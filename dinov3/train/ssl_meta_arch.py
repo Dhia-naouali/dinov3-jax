@@ -635,3 +635,22 @@ class SSLMetaArch(nn.Module):
             params["params"][k] = sharded_params[k]
         
         return params
+    
+
+    @staticmethod
+    def update_ema(
+        # ema_params, 
+        # params, 
+        # mom
+    ):
+        def _update_ema(ema_params, params, mom):
+            return jax.tree_util.tree_map(
+                lambda ema, p: ema * mom + p * (1 - mom),
+                ema_params,                
+                {
+                    "params": {
+                        k: v for k, v in params["params"].items() if k.startswith("student_") or k.startswith("teacher_")
+                    }
+                }
+            )
+        return _update_ema
