@@ -83,15 +83,12 @@ def build_optimizer(
     # separating the groups configs and param masks + renaming masks to match student params pytree
     groups = param_groups.pop("--groups--")
     for k in list(param_groups.keys()):
-        print(k)
         if "student_" not in k:
             param_groups[f"student_{k}"] = param_groups.pop(k)
-        print(param_groups.keys())
 
     lr_schedule = jnp.array(lr_schedule.gen())
     wd_schedule = jnp.array(wd_schedule.gen())
     last_layer_lr_schedule = jnp.array(last_layer_lr_schedule.gen())
-    print()
 
 
     optimizers = optax.multi_transform(
@@ -327,7 +324,6 @@ def main(argv=None):
     # init_params = model.prepare_for_distributed_training(init_params)
 
     logger.info(f"...") # jax.debug.visualize_array_sharding ???
-    print(args.eval_only)
     if args.eval_only:
         iteration = model.get_checkpointer_class()(
             model, save_dir=config.train.output_dir
@@ -361,63 +357,6 @@ def do_train(config, model, resume=False):
         model=model,
         start_iter=0,
     )
-
-
-
-
-
-
-
-
-    #########################################################
-    #########################################################
-    #########################################################
-    #########################################################
-    #########################################################
-
-
-
-
-    # metrics_file = os.path.join(config.train.output_dir, "training_metrics.json")
-    # metric_logger = MetricLogger(delimiter="  ", output_file=metrics_file)
-
-    # c = 0
-    # ref = None
-    # for data in metric_logger.log_every(
-    #     data_loader, print_freq=10,
-    #     header="Training",
-    #     n_iterations=100,
-    #     start_iteration=0
-    # ):
-    #     if ref is None:
-    #         ref = set(list(data.keys()))
-    #     else:
-    #         if ref != set(list(data.keys())):
-    #             raise Exception("batch data changed")
-    #     for k, v in data.items():
-    #         if isinstance(v, jnp.ndarray):
-    #             print(k, v.shape)
-    #         else:
-    #             print(k, v)
-    #     if c > 12:
-    #         raise Exception()
-    #     c += 1
-
-
-
-
-
-
-    #########################################################
-    #########################################################
-    #########################################################
-    #########################################################
-
-
-
-
-
-
 
     # inits, specs and sharding
     init_batch = next(iter(data_loader))
@@ -569,6 +508,8 @@ def do_train(config, model, resume=False):
 
     rngs={"dropout": dropout_rng, "drop_path": drop_path_rng}
 
+
+
     def train_step(
             params,
             batch,
@@ -576,13 +517,10 @@ def do_train(config, model, resume=False):
             teacher_temp,
             iteration,
             root_rngs,
-            axis_name="dp"
+            axis_name="dp",
+            clip_grads=config.optim.clip_grad
     ):
-        # keeping prints for now, one time thingy anyway
-
         student_params = {k: v for k, v in params["params"].items() if "student_" in k}
-        print(f"entry: {params['params'].keys()}")
-        print(f"entry student: {student_params.keys()}")
         axis_idx = jax.lax.axis_index(axis_name)
         rngs = {k: jax.random.fold_in(v, axis_idx) for k, v in root_rngs.items()}
         def loss_fn(student_params):
@@ -591,21 +529,82 @@ def do_train(config, model, resume=False):
                 k: student_params[k] if "student_" in k else v
                 for k, v in temp_params["params"].items()
             }
-            loss = model.apply(temp_params, batch, teacher_temp=teacher_temp, iteration=iteration, rngs=rngs)
-            return loss
+            loss, metrics_dict = model.apply(temp_params, batch, teacher_temp=teacher_temp, iteration=iteration, rngs=rngs)
+            return loss, metrics_dict
 
-        loss, grads = jax.value_and_grad(loss_fn)(student_params)
-        print(f"grads: {grads.keys()}")
-        
-        # grads norm
+        (loss, metrics_dict), grads = jax.value_and_grad(loss_fn, has_aux=True)(student_params)
 
         grads = sync_grads(grads)
+        def global_norm(grads):
+            return jnp.sqrt(
+                sum([
+                    jnp.sum(jnp.square(x)) for x in jax.tree_util.tree_leaves(grads)
+                ])
+            )
+        
+
+        def clip_grads(grads, max_norm=config.optim.clip_grad):
+            norm = global_norm(grads)
+            scale = jnp.minimum(1., max_norm / (norm + 1e-6))
+            clipped = jax.tree_util.tree_map(
+                lambda g: g * scale,
+                grads
+            )
+            return clipped, norm
+
+
+        if config.optim.clip_grad:
+            for k in student_params.keys():
+                grads[k], grad_norm = clip_grads(
+                    grads[k]
+                )
+                metrics_dict[f"{k}_grad_norm"] = (
+                    grad_norm
+                )
+
+
+
+        def min_rank_1(v):
+            if not isinstance(v, jnp.ndarray):
+                v = jnp.array([v])
+            
+            if v.ndim < 1:
+                return jnp.expand_dims(v, 0)
+            return v
+
+        metrics_dict = jax.tree_util.tree_map(min_rank_1, metrics_dict)
+        metrics_dict = jax.tree_util.tree_map(
+            lambda l: jax.lax.pmean(l, axis_name="dp"),
+            metrics_dict
+        )
+    
+        # grad norms
+
+
         updates, optimizer_state = optimizer.update(grads, optimizer_state, student_params)
         student_params = optax.apply_updates(student_params, updates)
-        print(f"params: {params.keys()}")
-        print(f"student_params: {student_params.keys()}")
-        print(f"params_params: {params['params'].keys()}")
-        return params, optimizer_state, loss
+        
+        return params, jax.tree_util.tree_map(min_rank_1, optimizer_state), loss, metrics_dict
+
+
+    metrics_dict_specs = {
+        "dino_global_crops_loss": P("dp"),
+        "dino_local_crops_loss": P("dp"),
+
+        "dino_local_loss_weight": P(),
+        "koleo_loss": P("dp"),
+
+        "local_batch_size": P(),
+        "ibot_loss": P("dp"),
+    }
+
+    if config.optim.clip_grad:
+        metrics_dict_specs = {
+            **metrics_dict_specs,
+            **{
+                f"{k}_grad_norm": P("dp") for k in student_params.keys()
+            }
+        }
 
 
     train_step_fsdp = jax.jit(
@@ -620,7 +619,8 @@ def do_train(config, model, resume=False):
                 P(), # iteration
                 P(), # rngs
             ),
-            out_specs=(param_specs, optimizer_specs, P())
+            out_specs=(param_specs, optimizer_specs, P(), P()),
+            check_vma=False
         ),
         donate_argnums=(0, 1, 2)
     )
@@ -650,7 +650,8 @@ def do_train(config, model, resume=False):
     ):
         it = iteration
         data["global_batch_size"] = global_batch_size
-        if iteration > max_iter:
+        print(iteration)
+        if iteration > 4 :# temp, max_iter:
             return
         
         if (iteration + 1) % 150 == 0:
@@ -665,18 +666,7 @@ def do_train(config, model, resume=False):
         wd = wd_schedule[it]
         mom = momentum_schedule[it]
         teacher_temp = teacher_temp_schedule[it]
-        last_layer_lr = last_layer_lr_schedule[it]
-
-
-        # add metrics log / dict
-        for k, v in data.items():
-            if isinstance(v, jnp.ndarray):
-                print(k, v.shape)
-            else:
-                print(k, v)
-        if it > 12:
-            raise Exception()
-        
+        last_layer_lr = last_layer_lr_schedule[it]        
 
         data = jax.tree_util.tree_map(
             shard_batch_item, 
@@ -685,14 +675,8 @@ def do_train(config, model, resume=False):
         )
 
 
-        params_fsdp, optimizer_state, total_loss = train_step_fsdp(params_fsdp, data, optimizer_state, teacher_temp_schedule[it], it, rngs)
+        params_fsdp, optimizer_state, total_loss, metrics_dict = train_step_fsdp(params_fsdp, data, optimizer_state, teacher_temp, it, rngs)
         # all reduce metric_dict
-
-        print(f"params: {params_fsdp['params'].keys()}")
-
-        if config.optim.clip_grad:
-            print("to clip grads")
-
 
 
         if jnp.isnan(total_loss).any():
@@ -727,7 +711,7 @@ def do_train(config, model, resume=False):
         metric_logger.update(wd=wd)
         metric_logger.update(mom=mom)
         metric_logger.update(last_layer_lr=last_layer_lr)
-        # metric_logger.update(total_loss=total_loss, **metrics_dict)
+        metric_logger.update(total_loss=total_loss, **metrics_dict)
 
         if (
             config.evaluation.eval_period_iterations > 0 and (iteration + 1) % config.evaluation.eval_period_iterations == 0
@@ -751,7 +735,6 @@ def do_train(config, model, resume=False):
         iteration += 1
 
 
-    # print("all done !")
     return {k: meter.global_avg for k, meter in metric_logger.meters.items()}
 
 

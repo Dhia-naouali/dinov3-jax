@@ -355,8 +355,8 @@ class SSLMetaArch(nn.Module):
         )
 
         loss_accumulator = jax.lax.pmean(loss_accumulator, axis_name="dp")
-        return loss_accumulator.squeeze()
-        return loss_accumulator, metrics_dict | loss_dict
+        d = metrics_dict | loss_dict
+        return loss_accumulator.squeeze(), d
     
 
     def get_teacher_output(
