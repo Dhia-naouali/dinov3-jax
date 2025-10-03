@@ -58,7 +58,7 @@ train:
   cell_augmentation: false
   cell_augmentation_type: hpa
 student:
-  arch: vit_large
+  arch: vit_base
   patch_size: 16
   drop_path_rate: 0.3
   layerscale: 1.0e-05
@@ -142,3 +142,4 @@ checkpointing:
   period: 3750
 
   max_to_keep: 3
+
