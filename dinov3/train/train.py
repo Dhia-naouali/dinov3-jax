@@ -45,9 +45,7 @@ from dinov3.checkpointer import (
 # logdir = "/tmp/jax_trace"
 # os.makedirs(logdir, exist_ok=True)
 
-# # Start recording a profile
 # jax.profiler.start_trace(logdir)
-
 
 
 logger = logging.getLogger("dinov3")
@@ -111,10 +109,6 @@ def build_optimizer(
         param_groups
     )
 
-    return optimizers
-
-
-
     """
     current:
         -group1:
@@ -128,20 +122,8 @@ def build_optimizer(
             mask1: [...schedules...]
             ...
     """
-    # return None
-    return optax.adamw(schedule, b1=config.optim.adamw_beta1, b2=config.optim.adamw_beta2)
-    return None
-    # for params_group in params_groups:
-        # extract schedule
-        # init optimizer
-    
-    # return optimizers
 
-
-
-
-    # return None
-    # return optax.adamw(schedule, b1=config.optim.adamw_beta1, b2=config.optim.adamw_beta2)
+    return optimizers
 
 
 
@@ -655,7 +637,7 @@ def do_train(config, model, resume=False):
         it = iteration
         data["global_batch_size"] = global_batch_size
         print(iteration)
-        if iteration > 4 :# temp, max_iter:
+        if iteration > 256 :# temp, max_iter:
             return
         
         if (iteration + 1) % 150 == 0:
@@ -678,7 +660,6 @@ def do_train(config, model, resume=False):
             batch_pspec
         )
 
-        import IPython; IPython.embed()
         params_fsdp, optimizer_state, total_loss, metrics_dict = train_step_fsdp(params_fsdp, data, optimizer_state, teacher_temp, it, rngs)
 
 
