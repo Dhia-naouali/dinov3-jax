@@ -17,8 +17,8 @@ def is_enabled():
 
 
 def get_rank():
-    return jax.process_index()
+    return 0 # jax.process_index()
 
 
 def get_world_size():
-    return jax.process_count()
+    return jax.device_count()

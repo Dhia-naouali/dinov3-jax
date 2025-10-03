@@ -56,7 +56,7 @@ def _configure_logger(
     log_to_stdout_only_in_main_process: bool = True,
 ):
     import jax
-    is_main_process = jax.process_index() == 0
+    is_main_process = True # jax.process_index() == 0
     """
     Configure a logger.
 
