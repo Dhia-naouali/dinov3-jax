@@ -9,7 +9,6 @@ import copy
 import math
 import logging
 import argparse
-import subprocess
 from pathlib import Path
 from typing import Iterable, Any
 from functools import partial
@@ -661,7 +660,6 @@ def do_train(config, model, resume=False):
         )
 
         params_fsdp, optimizer_state, total_loss, metrics_dict = train_step_fsdp(params_fsdp, data, optimizer_state, teacher_temp, it, rngs)
-        subprocess.run("tpu-info", shell=True)
 
         if jnp.isnan(total_loss).any():
             consecutive_nan_count += 1
@@ -859,5 +857,6 @@ def build_data_loader_from_cfg(
 if __name__ == "__main__":
 
     main()
+
 
 
