@@ -28,6 +28,10 @@ to achieve a PyTorch-like FSDP implementation we built an FSDP wrapper to be use
 we used PyTorch's data loaders without pinned memory: JAX asynch dispatcher will take care of the equivalent, no multiple workers (`num_workers`) since it's a single process run by the host that will later on shard / distribute the batch on it's devices in a data parallel fashion
 
 
+<h4> Checkpointing (model & optimizer)</h4>
+the reference PyTorch implementation (multi-host) uses `dcp` (torch.distributed.checkpoint) API + `tempfiles`, in the JAX ecosystem orbax provide similar functionalities along with extra pre-implemented utils, to keep both implementations similar we only used high level / simple orbax APIs, for partial checkpointing (`register_dont_save_hooks`) not to save the forzen backbone each step, we simply pass the head(s) pytree to `save_checkpoint` given JAX/flax params are already being tossed around here and there and are always at reach
+
+
 <h4> other minor tweaks</h4>
 few other changes were introduced to avoid conflicts, function names where kept as similar as possible (if kept in the first place)
 
