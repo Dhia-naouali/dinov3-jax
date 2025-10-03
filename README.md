@@ -35,6 +35,16 @@ the reference PyTorch implementation (multi-host) uses `dcp` (torch.distributed.
 <h4> other minor tweaks</h4>
 few other changes were introduced to avoid conflicts, function names where kept as similar as possible (if kept in the first place)
 
+
+
+<p align="center">
+  <img src="assets/dinov3-jax-run.png" width="960"><br>
+  <em>few distributed training steps run profile (on 8 cpu cores:''') )</em>
+</p>
+
+<p>
+  looking for a way to benchmark it against the reference PyTorch implementation (kaggle envs aren't compatible with JAX 0.7.1 (python 3.10)
+</p>
 <br>
 <br>
 <p align="center">
@@ -54,3 +64,4 @@ few other changes were introduced to avoid conflicts, function names where kept 
       url={https://arxiv.org/abs/2508.10104}, 
 }
 ```
+

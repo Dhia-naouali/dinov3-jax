@@ -677,22 +677,20 @@ def do_train(config, model, resume=False):
             batch_pspec
         )
 
-        if it % 32 == 0:
-            try:
-                jax.profiler.start_trace(f"/tmp/profile-data/step_{it}", create_perfetto_link=True)
-            except RuntimeError:
-                jax.profiler.stop_trace()
-                jax.profiler.start_trace(f"/tmp/profile-data/step_{it}", create_perfetto_link=True)
+        # if it % 32 == 0:
+        #     try:
+        #         jax.profiler.start_trace(f"/tmp/profile-data/step_{it}", create_perfetto_link=True)
+        #     except RuntimeError:
+        #         jax.profiler.stop_trace()
+        #         jax.profiler.start_trace(f"/tmp/profile-data/step_{it}", create_perfetto_link=True)
         
         params_fsdp, optimizer_state, total_loss, metrics_dict = train_step_fsdp(params_fsdp, data, optimizer_state, teacher_temp, it, rngs)
 
-
-        if it % 32 == 0:
-            print(f"iteration {it} mem usage:")
-            print_memory_usage(it)
-            jax.profiler.stop_trace()
-        
-        
+        # if it % 32 == 0:
+        #     print(f"iteration {it} mem usage:")
+        #     print_memory_usage(it)
+        #     jax.profiler.stop_trace()
+       
         
         if jnp.isnan(total_loss).any():
             consecutive_nan_count += 1
