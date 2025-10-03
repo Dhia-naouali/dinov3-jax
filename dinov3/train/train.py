@@ -45,11 +45,29 @@ from dinov3.checkpointer import (
 # logdir = "/tmp/jax_trace"
 # os.makedirs(logdir, exist_ok=True)
 
-jax.profiler.start_trace("/tmp/profile-data")
-
 logger = logging.getLogger("dinov3")
 # jax.config.update('jax_num_cpu_devices', 8)
 INIT_PHASE = False
+
+
+def print_memory_usage(step, total_memory=16 * 1024**3):
+    try:
+        mem_profile = jax.profiler.device_memory_profile()
+        for device in jax.devices():
+            mem_info = mem_profile.get(str(device.id), {})
+            used_memory = mem_info.get('bytes_in_use', 0)
+            free_memory = total_memory - used_memory
+            print(f"Step {step} - Device {device.id}: Used: {used_memory / 1024**3:.1f} GB, Free: {free_memory / 1024**3:.1f} GB")
+    except Exception as e:
+        print(f"Step {step}: Failed to get memory profile: {e}")
+        for device in jax.devices():
+            print(f"Step {step} - Device {device.id}: Memory usage unavailable")
+
+
+
+
+
+
 
 def get_args_parser():
     parser = argparse.ArgumentParser()
@@ -659,8 +677,24 @@ def do_train(config, model, resume=False):
             batch_pspec
         )
 
+        if it % 10 == 0:
+            try:
+                jax.profiler.start_trace(f"/tmp/profile-data/step_{it}", create_perfetto_link=True)
+            except RuntimeError:
+                jax.profiler.stop_trace()
+                jax.profiler.start_trace(f"/tmp/profile-data/step_{it}", create_perfetto_link=True)
+        
         params_fsdp, optimizer_state, total_loss, metrics_dict = train_step_fsdp(params_fsdp, data, optimizer_state, teacher_temp, it, rngs)
 
+
+        if it % 10 == 0:
+            print(f"iteration {it} mem usage:")
+            print_memory_usage(it)
+            jax.profiler.stop_trace()
+            jax.profiler.save_device_memory_profile(f"/tmp/profile-data/memory_step_{it}.prof")
+        
+        
+        
         if jnp.isnan(total_loss).any():
             consecutive_nan_count += 1
             # logger.warning("nan loss detected on ranks: unkown") # that's pure rage bating
@@ -857,6 +891,7 @@ def build_data_loader_from_cfg(
 if __name__ == "__main__":
 
     main()
+
 
 
 
