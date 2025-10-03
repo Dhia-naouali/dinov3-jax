@@ -49,7 +49,7 @@ from dinov3.checkpointer import (
 
 
 logger = logging.getLogger("dinov3")
-jax.config.update('jax_num_cpu_devices', 8)
+# jax.config.update('jax_num_cpu_devices', 8)
 INIT_PHASE = False
 
 def get_args_parser():
