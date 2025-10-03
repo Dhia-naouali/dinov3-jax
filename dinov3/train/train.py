@@ -31,6 +31,13 @@ from dinov3.configs import setup_job, setup_config
 from dinov3.logging import setup_logging, MetricLogger
 from dinov3.data import MaskingGenerator, make_dataset, make_data_loader, collate_data_and_cast, SamplerType
 from dinov3.fsdp.utils import sync_grads
+from dinov3.checkpointer import (
+    find_latest_checkpoint, 
+    keep_checkpoint_copy, 
+    keep_last_n_checkpoints, 
+    load_checkpoint, 
+    save_checkpoint
+)
 
 # from somewhere import distributed
 
@@ -475,19 +482,16 @@ def do_train(config, model, resume=False):
         )
 
     start_iter = 0
-    if resume: # and (last_checkpoint_dir := find_latest_checkpoint(ckpt_dir)):
-        ...
-        # raise Exception("resume zeft")
-        # logger.inof(f"checkpoint found {last_checkpoint_dir}")
-        # start_iter = (
-        #     load_checkpoint(
-        #         last_checkpoint_dir,
-        #         model=model,
-        #         optimizer=optimizer,
-        #         strict_loading=False,
-        #         # no process groups
-        #     )
-        # ) + 1
+    if resume and (last_checkpoint_dir := find_latest_checkpoint(ckpt_dir)):
+        logger.inof(f"checkpoint found {last_checkpoint_dir}")
+        start_iter = (
+            load_checkpoint(
+                last_checkpoint_dir,
+                model=params_fsdp,
+                optimizer=optimizer_state,
+                strict_loading=False,
+            )
+        ) + 1
 
     OFFICIAL_EPOCH_LENGTH = config.train.OFFICIAL_EPOCH_LENGTH
     max_iter = config.optim.epochs * OFFICIAL_EPOCH_LENGTH
@@ -674,9 +678,8 @@ def do_train(config, model, resume=False):
             batch_pspec
         )
 
-
+        import IPython; IPython.embed()
         params_fsdp, optimizer_state, total_loss, metrics_dict = train_step_fsdp(params_fsdp, data, optimizer_state, teacher_temp, it, rngs)
-        # all reduce metric_dict
 
 
         if jnp.isnan(total_loss).any():
