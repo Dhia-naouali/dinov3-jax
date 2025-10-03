@@ -46,8 +46,7 @@ from dinov3.checkpointer import (
 # logdir = "/tmp/jax_trace"
 # os.makedirs(logdir, exist_ok=True)
 
-# jax.profiler.start_trace(logdir)
-
+jax.profiler.start_trace("/tmp/profile-data")
 
 logger = logging.getLogger("dinov3")
 # jax.config.update('jax_num_cpu_devices', 8)
@@ -720,6 +719,8 @@ def do_train(config, model, resume=False):
         iteration += 1
 
 
+    jnp.array([1]).block_until_ready()
+    jax.profiler.stop_trace()
     return {k: meter.global_avg for k, meter in metric_logger.meters.items()}
 
 
@@ -858,4 +859,5 @@ def build_data_loader_from_cfg(
 if __name__ == "__main__":
 
     main()
+
 
