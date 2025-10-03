@@ -42,13 +42,9 @@ from dinov3.checkpointer import (
 # from somewhere import distributed
 
 
-# logdir = "/tmp/jax_trace"
-# os.makedirs(logdir, exist_ok=True)
 
 logger = logging.getLogger("dinov3")
 # jax.config.update('jax_num_cpu_devices', 8)
-INIT_PHASE = False
-
 
 def print_memory_usage(step, total_memory=16 * 1024**3):
     try:
@@ -323,13 +319,8 @@ def main(argv=None):
 
     logger.info(f"Making meta arch {meta_arch.__name__}")
     model = meta_arch(config)
-    # fill with nans to check for init
-    logger.info(f"Model after distributed #### TO FIX ####:\n{model}")
     
-    # prepare for FSDP (replicate across devices ?)
-    # init_params = model.prepare_for_distributed_training(init_params)
 
-    logger.info(f"...") # jax.debug.visualize_array_sharding ???
     if args.eval_only:
         iteration = model.get_checkpointer_class()(
             model, save_dir=config.train.output_dir
@@ -339,6 +330,10 @@ def main(argv=None):
         
         return do_test(config, model, f"manual_{iteration}")
     do_train(config, model, resume=not args.no_resume)
+
+
+def do_test(config, model, header):
+    raise NotImplemented()
 
 
 def do_train(config, model, resume=False):
@@ -380,7 +375,7 @@ def do_train(config, model, resume=False):
 
     def init_dp(rng, inputs, model):
         init_rng, rng = jax.random.split(rng)
-        return model.init(init_rng, inputs, teacher_temp=.7, iteration=0, init_phase=True) # somehow state
+        return model.init(init_rng, inputs, teacher_temp=.7, iteration=0, init_phase=True)
 
     def shard_batch_item(item, spec):
         return jax.device_put(item, jax.sharding.NamedSharding(mesh, spec))
@@ -415,6 +410,7 @@ def do_train(config, model, resume=False):
     )
 
     params_fsdp = init_fsdp(init_rng, init_batch)
+    logger.info(f"model params sharded")
     ema_params_fsdp = {
         "params": {
             k: jax.tree_util.tree_map(
@@ -691,7 +687,7 @@ def do_train(config, model, resume=False):
         #     print_memory_usage(it)
         #     jax.profiler.stop_trace()
        
-        
+    
         if jnp.isnan(total_loss).any():
             consecutive_nan_count += 1
             # logger.warning("nan loss detected on ranks: unkown") # that's pure rage bating
