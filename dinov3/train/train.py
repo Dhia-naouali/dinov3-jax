@@ -62,9 +62,6 @@ def print_memory_usage(step, total_memory=16 * 1024**3):
 
 
 
-
-
-
 def get_args_parser():
     parser = argparse.ArgumentParser()
     parser.add_argument("--config-file", default="")
