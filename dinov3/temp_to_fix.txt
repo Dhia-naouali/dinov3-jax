@@ -1,9 +1,0 @@
-distributed in train/setup_config/apply_scaling_rule_to_cfg
-distributed_env eq in logging.__init__/_configure_logger
-seed for init in train/main
-student backbone params count in SSL's setup to be moved out (after meta_arch.init)
-
-
-run command: 
-
-python -m dinov3.train.train 12     --config-file=dinov3/configs/train/vitl_im1k_lin834.yaml     --output-dir=./output     --opts train.dataset_path=./data
