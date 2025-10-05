@@ -7,6 +7,9 @@ This repository contains a Flax/JAX implementation of DINOv3 ([paper](https://ar
 <h2> Overview</h2>
 this a re-implementation of Dinov3 by Meta, suing their original <a href="https://github.com/facebookresearch/dinov3">repo</a> in PyTorch mainly to have a better benchmark (using JAX: trading principles for optimization) and for learning puposes: SSL, distributed training bleeding edge training tricks and techniques ...
 
+<h2> users Notes</h2>
+the process of using this repo is quite similar to the original one, implementation differences are mentioned in the next section
+feel free to import the Model's weights from Meta, prepare your checkpoint for JAX (we'll implement a conversion function in the future), setup your data folder and dataset and you're pretty much good to go (the current implementation yields random arrays for data images for testing)
 
 <h2> where it differs from the original repo</h2>
 due to the differences in how PyTorch and JAX/flax are designed few design differences occured in this repo
@@ -64,5 +67,6 @@ few other changes were introduced to avoid conflicts, function names where kept 
       url={https://arxiv.org/abs/2508.10104}, 
 }
 ```
+
 
 
