@@ -41,7 +41,7 @@ from dinov3.checkpointer import (
 
 
 logger = logging.getLogger("dinov3")
-# jax.config.update('jax_num_cpu_devices', 8)
+# jax.config.update('jax_num_cpu_devices', 8) # sad :(
 
 
 def get_args_parser():
@@ -90,10 +90,10 @@ def build_optimizer(
 
     optimizers = optax.multi_transform(
         {
-            k: optax.adamw(
+            k: optax.inject_hyperparams(optax.adamw)(
                 learning_rate=lambda it: v.lr_multiplier * (last_layer_lr_schedule[it] if v.is_last_layer else lr_schedule[it]),
-                # weight_decay=lambda it: v.wd_multiplier * wd_schedule[it],
-                weight_decay=v.wd_multiplier,
+                weight_decay=lambda it: v.wd_multiplier * wd_schedule[it],
+                # weight_decay=v.wd_multiplier,
                 b1=config.optim.adamw_beta1,
                 b2=config.optim.adamw_beta2
             ) for k, v in groups.items()
