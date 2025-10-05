@@ -1,5 +1,5 @@
 # dinov3-jax
-92.4% Done
+92.8% Done
 
 This repository contains a Flax/JAX implementation of DINOv3 ([paper](https://arxiv.org/abs/2508.10104), [original repo](https://github.com/facebookresearch/dinov3)), originally developed in PyTorch by [Meta AI](https://github.com/facebookresearch)  
 
@@ -39,7 +39,7 @@ the reference PyTorch implementation (multi-host) uses `dcp` (torch.distributed.
 few other changes were introduced to avoid conflicts, function names where kept as similar as possible (if kept in the first place)
 
 
-
+<br>
 <p align="center">
   <img src="assets/dinov3-jax-run.png" width="960"><br>
   <em>few distributed training steps run profile (on 8 cpu cores:''') )</em>
@@ -49,11 +49,11 @@ few other changes were introduced to avoid conflicts, function names where kept 
   looking for a way to benchmark it against the reference PyTorch implementation (kaggle envs aren't compatible with JAX 0.7.1 (python 3.10)
 </p>
 <br>
-<br>
 <p align="center">
   <img src="assets/dino_at_home.png" width="420"><br>
   <em>"we have dino at home !"</em>
 </p>
+<br>
 
 
 ```text
@@ -67,8 +67,3 @@ few other changes were introduced to avoid conflicts, function names where kept 
       url={https://arxiv.org/abs/2508.10104}, 
 }
 ```
-
-
-
-
-
