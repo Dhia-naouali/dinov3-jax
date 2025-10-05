@@ -39,27 +39,9 @@ from dinov3.checkpointer import (
     save_checkpoint
 )
 
-# from somewhere import distributed
-
-
 
 logger = logging.getLogger("dinov3")
 # jax.config.update('jax_num_cpu_devices', 8)
-
-def print_memory_usage(step, total_memory=16 * 1024**3):
-    try:
-        mem_profile = jax.profiler.device_memory_profile()
-        for device in jax.devices():
-            mem_info = mem_profile
-            used_memory = mem_info
-            free_memory = total_memory - used_memory
-            print(f"Step {step} - Device {device.id}: Used: {used_memory / 1024**3:.1f} GB, Free: {free_memory / 1024**3:.1f} GB")
-    except Exception as e:
-        print(f"Step {step}: Failed to get memory profile: {e}")
-        for device in jax.devices():
-            print(f"Step {step} - Device {device.id}: Memory usage unavailable")
-
-
 
 
 def get_args_parser():
@@ -194,9 +176,6 @@ def build_schedulers(config):
         teacher_temp_schedule,
         last_layer_lr_schedule
     )
-
-
-
 
 
     
@@ -505,7 +484,6 @@ def do_train(config, model, resume=False):
     rngs={"dropout": dropout_rng, "drop_path": drop_path_rng}
 
 
-
     def train_step(
             params,
             batch,
@@ -622,7 +600,6 @@ def do_train(config, model, resume=False):
     )
 
 
-    # student = model.student
     iteration = start_iter
     num_gram_updates = 0
     if (
@@ -669,27 +646,13 @@ def do_train(config, model, resume=False):
             data, 
             batch_pspec
         )
-
-        # if it % 32 == 0:
-        #     try:
-        #         jax.profiler.start_trace(f"/tmp/profile-data/step_{it}", create_perfetto_link=True)
-        #     except RuntimeError:
-        #         jax.profiler.stop_trace()
-        #         jax.profiler.start_trace(f"/tmp/profile-data/step_{it}", create_perfetto_link=True)
         
-        params_fsdp, optimizer_state, total_loss, metrics_dict = train_step_fsdp(params_fsdp, data, optimizer_state, teacher_temp, it, rngs)
-
-        # if it % 32 == 0:
-        #     print(f"iteration {it} mem usage:")
-        #     print_memory_usage(it)
-        #     jax.profiler.stop_trace()
-       
+        params_fsdp, optimizer_state, total_loss, metrics_dict = train_step_fsdp(params_fsdp, data, optimizer_state, teacher_temp, it, rngs)       
     
         if jnp.isnan(total_loss).any():
             consecutive_nan_count += 1
             # logger.warning("nan loss detected on ranks: unkown") # that's pure rage bating
             logger.warning(f"consecutive NaNs: {consecutive_nan_count}")
-            # metric_dict thingy
 
             logger.warning(f"All reduced metrics: {...}")
             if consecutive_nan_count > 2 and not config.multidistillation.enabled:

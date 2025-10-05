@@ -3,12 +3,6 @@
 # Original repository: https://github.com/facebookresearch/dinov3
 
 
-# from .jax_distributed_wrapper import (
-#     ...
-# )
-
-# from .jax_distributed_primitives import gather_all_tensors, reduce_dict
-
 import jax
 
 
@@ -17,7 +11,7 @@ def is_enabled():
 
 
 def get_rank():
-    return 0 # jax.process_index()
+    return 0 # single host
 
 
 def get_world_size():
