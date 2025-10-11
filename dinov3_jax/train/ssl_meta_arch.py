@@ -12,16 +12,16 @@ import jax
 import jax.numpy as jnp
 import flax.linen as nn
 from flax.traverse_util import flatten_dict
-from dinov3.models import build_model_from_cfg
-from dinov3.utils import count_parameters
-from dinov3.layers.dino_head import DINOHead
-from dinov3.loss import DINOLoss, KoLeoLossDistributed, KoLeoLoss, iBOTPatchLoss, GramLoss
-from dinov3.train.cosine_lr_scheduler import linear_warmup_cosine_decay
-from dinov3.train.param_groups import get_params_groups_with_decay_fsdp, fuse_params_groups
-from dinov3.configs import get_default_config
-from dinov3.data import DataAugmentationDINO
-from dinov3.fsdp.ac_compile_parallelize import ac_compile_parallelize
-from dinov3.fsdp.utils import fsdp_wrapper
+from dinov3_jax.models import build_model_from_cfg
+from dinov3_jax.utils import count_parameters
+from dinov3_jax.layers.dino_head import DINOHead
+from dinov3_jax.loss import DINOLoss, KoLeoLossDistributed, KoLeoLoss, iBOTPatchLoss, GramLoss
+from dinov3_jax.train.cosine_lr_scheduler import linear_warmup_cosine_decay
+from dinov3_jax.train.param_groups import get_params_groups_with_decay_fsdp, fuse_params_groups
+from dinov3_jax.configs import get_default_config
+from dinov3_jax.data import DataAugmentationDINO
+from dinov3_jax.fsdp.ac_compile_parallelize import ac_compile_parallelize
+from dinov3_jax.fsdp.utils import fsdp_wrapper
 
 logger = logging.getLogger("dinov3")
 

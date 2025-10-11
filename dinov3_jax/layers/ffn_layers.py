@@ -5,7 +5,7 @@
 
 import flax.linen as nn
 from typing import Callable, Optional
-from dinov3.utils import cat_keep_shapes, uncat_with_shapes
+from dinov3_jax.utils import cat_keep_shapes, uncat_with_shapes
 
 
 class ListForwardMixin(object):

@@ -7,15 +7,15 @@ import logging
 import os
 from pathlib import Path
 
-from dinov3.logging import setup_logging
-from dinov3.utils.cluster import (
+from dinov3_jax.logging import setup_logging
+from dinov3_jax.utils.cluster import (
     get_slurm_account,
     get_slurm_executor_parameters,
     get_slurm_partition,
     get_slurm_qos,
     get_user_checkpoint_path,
 )
-from dinov3.utils.custom_callable import load_custom_callable
+from dinov3_jax.utils.custom_callable import load_custom_callable
 
 logger = logging.getLogger("dinov3")
 

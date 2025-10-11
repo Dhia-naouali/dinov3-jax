@@ -10,9 +10,8 @@ from typing import Optional
 
 from termcolor import colored
 
-# from dinov3.distributed import TorchDistributedEnvironment
-
-from dinov3.logging.helpers import MetricLogger, SmoothedValue
+# from dinov3_jax.distributed import TorchDistributedEnvironment
+from dinov3_jax.logging.helpers import MetricLogger, SmoothedValue
 
 _LEVEL_COLORED_KWARGS = {
     logging.DEBUG: {"color": "green", "attrs": ["bold"]},

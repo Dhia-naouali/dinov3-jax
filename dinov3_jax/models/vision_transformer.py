@@ -11,7 +11,7 @@ import flax.linen as nn
 import jax.numpy as jnp
 
 # from dinov3.utils import named_apply # pytree map ?
-from dinov3.layers import (
+from dinov3_jax.layers import (
     LayerScale, 
     Mlp, 
     PatchEmbed, 
@@ -20,7 +20,7 @@ from dinov3.layers import (
     SelfAttentionBlock, 
     SwiGLUFFN
 )
-from dinov3.fsdp.utils import fsdp_wrapper
+from dinov3_jax.fsdp.utils import fsdp_wrapper
 
 logger = logging.getLogger("dinov3")
 
@@ -320,15 +320,15 @@ class DinoVisionTransformer(nn.Module):
 def vit_small(patch_size=16, **kwargs):
     return DinoVisionTransformer(
         patch_size=patch_size,
-        embed_dim=384,
-        n_blocks=12,
-        num_heads=6,
-        ffn_ratio=4,
+        # embed_dim=384,
+        # n_blocks=12,
+        # num_heads=6,
+        # ffn_ratio=4,
         # nvm these people
-        # embed_dim=128, 
-        # n_blocks=2,
-        # num_heads=2,
-        # ffn_ratio=1,
+        embed_dim=128, 
+        n_blocks=2,
+        num_heads=2,
+        ffn_ratio=1,
         **kwargs
     )
 

@@ -3,7 +3,7 @@ import itertools
 import numpy as np
 from typing import Optional
 
-from dinov3.distributed import get_rank, get_world_size
+from dinov3_jax.distributed import get_rank, get_world_size
 
 """
 note to self cuz my fish memory could never: 

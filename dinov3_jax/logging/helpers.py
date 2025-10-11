@@ -11,7 +11,7 @@ from collections import defaultdict, deque
 import jax
 import jax.numpy as jnp
 
-from dinov3 import distributed
+from dinov3_jax import distributed
 
 
 logger = logging.getLogger("dinov3")

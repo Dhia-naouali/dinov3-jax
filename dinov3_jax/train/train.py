@@ -24,14 +24,14 @@ import flax.linen as nn
 from jax.sharding import PartitionSpec as P
 
 
-from dinov3.train.cosine_lr_scheduler import CosineScheduler, linear_warmup_cosine_decay
-from dinov3.train.ssl_meta_arch import SSLMetaArch
-from dinov3.train.multidist_meta_arch import MultiDistillationMetaArch
-from dinov3.configs import setup_job, setup_config
-from dinov3.logging import setup_logging, MetricLogger
-from dinov3.data import MaskingGenerator, make_dataset, make_data_loader, collate_data_and_cast, SamplerType
-from dinov3.fsdp.utils import sync_grads
-from dinov3.checkpointer import (
+from dinov3_jax.train.cosine_lr_scheduler import CosineScheduler, linear_warmup_cosine_decay
+from dinov3_jax.train.ssl_meta_arch import SSLMetaArch
+from dinov3_jax.train.multidist_meta_arch import MultiDistillationMetaArch
+from dinov3_jax.configs import setup_job, setup_config
+from dinov3_jax.logging import setup_logging, MetricLogger
+from dinov3_jax.data import MaskingGenerator, make_dataset, make_data_loader, collate_data_and_cast, SamplerType
+from dinov3_jax.fsdp.utils import sync_grads
+from dinov3_jax.checkpointer import (
     find_latest_checkpoint, 
     keep_checkpoint_copy, 
     keep_last_n_checkpoints, 
