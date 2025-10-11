@@ -2,6 +2,10 @@
 # Ported from the original PyTorch implementation by Meta AI
 # Original repository: https://github.com/facebookresearch/dinov3
 
+# This software may be used and distributed in accordance with
+# the terms of the DINOv3 License Agreement.
+
+
 import logging
 from functools import partial
 from typing import *
@@ -320,15 +324,15 @@ class DinoVisionTransformer(nn.Module):
 def vit_small(patch_size=16, **kwargs):
     return DinoVisionTransformer(
         patch_size=patch_size,
-        # embed_dim=384,
-        # n_blocks=12,
-        # num_heads=6,
-        # ffn_ratio=4,
+        embed_dim=384,
+        n_blocks=12,
+        num_heads=6,
+        ffn_ratio=4,
         # nvm these people
-        embed_dim=128, 
-        n_blocks=2,
-        num_heads=2,
-        ffn_ratio=1,
+        # embed_dim=128, 
+        # n_blocks=2,
+        # num_heads=2,
+        # ffn_ratio=1,
         **kwargs
     )
 
