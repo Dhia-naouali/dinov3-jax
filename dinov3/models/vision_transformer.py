@@ -6,6 +6,7 @@ import logging
 from functools import partial
 from typing import *
 
+import jax
 import flax.linen as nn
 import jax.numpy as jnp
 
@@ -75,9 +76,12 @@ class DinoVisionTransformer(nn.Module):
     mask_k_bias: bool = False
     untie_cls_and_patch_norms: bool = False
     untie_global_and_local_cls_norm: bool = False
-    fsdp: Callable = partial(fsdp_wrapper, axis_name="dp")
     
     def setup(self):
+        if jax.device_count() > 1:
+            self.fsdp: Callable = partial(fsdp_wrapper, axis_name="dp")
+        else:
+            self.fsdp = lambda x: x
         norm_layer_cls = norm_layer_dict[self.norm_layer]
         self.num_features = self.embed_dim
         
@@ -239,14 +243,15 @@ class DinoVisionTransformer(nn.Module):
     
     
     def forward_features(self, x, masks=None, deterministic=True):
-        try:
-            if isinstance(x, jnp.ndarray):
-                return self.forward_features_list([x], [masks], deterministic=deterministic)[0] # a77a 2
-            else:
-                return self.forward_features_list(x, masks, deterministic=deterministic)
-        except Exception as e:
-            print(e)
-            import IPython; IPython.embed()
+        # try:
+        if isinstance(x, jnp.ndarray):
+            return self.forward_features_list([x], [masks], deterministic=deterministic)[0] # a77a 2
+        else:
+            return self.forward_features_list(x, masks, deterministic=deterministic)
+        # except Exception as e:
+            # this is a bottleneck where to catch nan values during debugging
+            # print(e)
+            # import IPython; IPython.embed()
 
     
     def _get_intermediate_layers_not_chunked(self, x, n=1, deterministic=True):
@@ -324,7 +329,7 @@ def vit_small(patch_size=16, **kwargs):
         # n_blocks=2,
         # num_heads=2,
         # ffn_ratio=1,
-        **kwargs
+        # **kwargs
     )
 
 
