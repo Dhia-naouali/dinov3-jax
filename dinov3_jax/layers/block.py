@@ -49,7 +49,7 @@ class SelfAttentionBlock(nn.Module):
         )
         self.ls1 = LayerScale(
             self.dim, init_values=self.init_values
-        ) if self.init_values else lambda x: x
+        ) if self.init_values is not None else lambda x: x
         
         self.norm2 = self.norm_layer()
         mlp_hidden_dim = int(self.dim * self.ffn_ratio)

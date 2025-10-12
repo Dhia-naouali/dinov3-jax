@@ -80,9 +80,10 @@ class DinoVisionTransformer(nn.Module):
     mask_k_bias: bool = False
     untie_cls_and_patch_norms: bool = False
     untie_global_and_local_cls_norm: bool = False
+    use_fsdp: bool = True
     
     def setup(self):
-        if jax.device_count() > 1:
+        if self.use_fsdp and jax.device_count() > 1:
             self.fsdp: Callable = partial(fsdp_wrapper, axis_name="dp")
         else:
             self.fsdp = lambda x: x
@@ -104,7 +105,7 @@ class DinoVisionTransformer(nn.Module):
         
         if self.n_storage_tokens > 0:
             self.storage_tokens = self.param(
-                "sotrage_tokens",
+                "storage_tokens",
                 nn.initializers.normal(.02),
                 (1, self.n_storage_tokens, self.embed_dim)
             )
